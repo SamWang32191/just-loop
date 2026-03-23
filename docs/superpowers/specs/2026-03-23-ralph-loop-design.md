@@ -5,7 +5,7 @@ Status: Draft reviewed with user
 
 ## Goal
 
-在 `my-loop-plugin` 中建立一個正式的 plugin runtime，實作一個只包含 Ralph Loop 最小核心能力的插件。
+在 `just-loop` 中建立一個正式的 plugin runtime，實作一個只包含 Ralph Loop 最小核心能力的插件。
 
 此版本不追求完整複刻 `.reference/oh-my-openagent`，只保留最必要的 loop 行為與宿主整合。
 

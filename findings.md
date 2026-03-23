@@ -2,7 +2,7 @@
 
 ## Requirements
 - 了解 `.reference/oh-my-openagent` 中 Ralph Loop feature 的實作、架構、與細節。
-- 規劃如何在 `my-loop-plugin` 中做出一個「只有 Ralph Loop 功能」的 plugin。
+- 規劃如何在 `just-loop` 中做出一個「只有 Ralph Loop 功能」的 plugin。
 - 目標範圍是最小核心 loop。
 - 落地形式是正式 plugin runtime。
 
@@ -17,7 +17,7 @@
 - event handler 有防重入設計：`inFlightSessions` + `sessionRecovery`。
 - event handler 也會處理 `session.deleted` 與 `session.error`，降低 orphaned state 風險。
 - 參考實作與 host plugin framework 高度耦合，尤其是 session create/messages/promptAsync/abort 與 TUI session selection。
-- 目前 `my-loop-plugin` repo 本身不是傳統 TS/JS runtime 專案，比較像 OpenCode/OpenSpec 的命令/工作流骨架。
+- 目前 `just-loop` repo 本身不是傳統 TS/JS runtime 專案，比較像 OpenCode/OpenSpec 的命令/工作流骨架。
 - 目前 repo 中最自然的承接位置是 `.opencode/command/` 與 `.opencode/skills/`，而非 `src/`。
 
 ## Technical Decisions

@@ -15,7 +15,7 @@ related: []
 # Ralph Loop state store must use `.loop/ralph-loop.local.md`
 
 ## Context
-During design of `my-loop-plugin`, the reference plugin used `.sisyphus/ralph-loop.local.md` for persisted Ralph Loop state.
+During design of `just-loop`, the reference plugin used `.sisyphus/ralph-loop.local.md` for persisted Ralph Loop state.
 
 ## Mistake
 I initially carried over the reference plugin's state file path when describing the design.
@@ -24,4 +24,4 @@ I initially carried over the reference plugin's state file path when describing 
 For this project, Ralph Loop persisted state must use the project-specific path `.loop/ralph-loop.local.md` rather than inheriting the reference plugin's `.sisyphus` path.
 
 ## When to Apply
-Apply this rule whenever describing, implementing, testing, or documenting Ralph Loop storage behavior in `my-loop-plugin`.
+Apply this rule whenever describing, implementing, testing, or documenting Ralph Loop storage behavior in `just-loop`.

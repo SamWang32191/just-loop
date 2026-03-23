@@ -10,7 +10,7 @@
   - 檢查是否有前次 session 可回收。
   - 確認 `docs/lessons/` 不存在，因此略過 lesson recall。
   - 委派 @explorer 探索 `.reference/oh-my-openagent` 中 Ralph Loop 結構。
-  - 委派 @explorer 探索目前 `my-loop-plugin` repo 結構與可承接位置。
+  - 委派 @explorer 探索目前 `just-loop` repo 結構與可承接位置。
   - 將研究結果整理進規劃檔。
 - Files created/modified:
   - task_plan.md (created)
@@ -72,6 +72,6 @@
 |----------|--------|
 | Where am I? | Phase 5：Delivery |
 | Where am I going? | 決定執行 implementation plan 的方式 |
-| What's the goal? | 逆向理解 Ralph Loop 並為正式 plugin runtime 版 my-loop-plugin 制定最小核心 loop 設計 |
+| What's the goal? | 逆向理解 Ralph Loop 並為正式 plugin runtime 版 just-loop 制定最小核心 loop 設計 |
 | What have I learned? | host contract 必須以本地型別錨定，特別是 `chat.message`、`event`、`session.messages` 與 `promptAsync`/`prompt` |
 | What have I done? | 已完成 spec 與 implementation plan，兩者都經審查核准 |

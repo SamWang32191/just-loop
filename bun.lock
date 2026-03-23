@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "my-loop-plugin",
+      "name": "just-loop",
       "dependencies": {
         "@opencode-ai/plugin": "1.3.0",
       },

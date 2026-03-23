@@ -1,5 +1,5 @@
 {
-  "name": "my-loop-plugin",
+  "name": "just-loop",
   "private": true,
   "type": "module",
   "main": "./dist/src/index.js",

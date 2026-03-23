@@ -1,7 +1,7 @@
-# Task Plan: Reverse-engineer Ralph Loop and design my-loop-plugin
+# Task Plan: Reverse-engineer Ralph Loop and design just-loop
 
 ## Goal
-理解 `.reference/oh-my-openagent` 中 Ralph Loop 的實作、架構與細節，並提出在 `my-loop-plugin` 中實作「只包含 Ralph Loop 功能」插件的設計方向。
+理解 `.reference/oh-my-openagent` 中 Ralph Loop 的實作、架構與細節，並提出在 `just-loop` 中實作「只包含 Ralph Loop 功能」插件的設計方向。
 
 ## Current Phase
 Phase 2
@@ -22,7 +22,7 @@ Phase 2
 
 ### Phase 3: Design Summary
 - [x] 整理 Ralph Loop 最小必要模組
-- [x] 定義在 my-loop-plugin 的目錄與整合面
+- [x] 定義在 just-loop 的目錄與整合面
 - [x] 列出風險與待確認事項
 - **Status:** complete
 

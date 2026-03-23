@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 建立一個正式的 `my-loop-plugin` TypeScript plugin runtime，提供最小核心 Ralph Loop：`/ralph-loop`、`/cancel-ralph`、單一 active loop state、completion 偵測、continuation 注入、`.loop/ralph-loop.local.md` 持久化。
+**Goal:** 建立一個正式的 `just-loop` TypeScript plugin runtime，提供最小核心 Ralph Loop：`/ralph-loop`、`/cancel-ralph`、單一 active loop state、completion 偵測、continuation 注入、`.loop/ralph-loop.local.md` 持久化。
 
 **Architecture:** 以薄殼 plugin + 核心 loop engine 實作。`src/plugin/` 專責 OpenCode hook glue，`src/ralph-loop/` 專責 loop state、completion、continuation 與 event 決策，所有宿主 API 透過 `src/host-adapter/` 收斂。第一版固定 `continue-only`，不實作 ultrawork 與 reset strategy。
 
@@ -77,7 +77,7 @@
 
 ```json
 {
-  "name": "my-loop-plugin",
+  "name": "just-loop",
   "private": true,
   "type": "module",
   "scripts": {
