@@ -38,6 +38,7 @@ tmp/
 temp/
 local
 .worktrees/
+.loop/
 
 .sisyphus/
 .hive/
