@@ -37,6 +37,7 @@ coverage/
 tmp/
 temp/
 local
+.loop/
 
 .sisyphus/
 .hive/
