@@ -1,3 +1,5 @@
+import { DEFAULT_COMPLETION_PROMISE, DEFAULT_MAX_ITERATIONS_FALLBACK } from "../ralph-loop/constants.js"
+
 export type CommandDefinition = {
   name: string
   description: string
@@ -11,7 +13,7 @@ const RALPH_LOOP_TEMPLATE = `You are starting a Ralph Loop - a self-referential 
 1. You will work on the task continuously
 2. When you believe the task is FULLY complete, output: \`<promise>{{COMPLETION_PROMISE}}</promise>\`
 3. If you don't output the promise, the loop will automatically inject another prompt to continue
-4. Maximum iterations: Configurable (default 100)
+4. Maximum iterations: plugin config fallback (${DEFAULT_MAX_ITERATIONS_FALLBACK})
 
 ## Rules
 
@@ -30,9 +32,12 @@ const RALPH_LOOP_TEMPLATE = `You are starting a Ralph Loop - a self-referential 
 ## Your Task
 
 Parse the arguments below and begin working on the task. The format is:
-\`"task description" [--completion-promise=TEXT] [--max-iterations=N] [--strategy=reset|continue]\`
+\`"task description" [--completion-promise=TEXT] [--max-iterations=N] [--strategy=continue]\`
 
-Default completion promise is "DONE" and default max iterations is 100.`
+Aliases: \`--promise "TEXT"\`, \`--max N\`
+Reset strategy is not supported in v1.
+
+Default completion promise is the project default \`${DEFAULT_COMPLETION_PROMISE}\` and default max iterations follows the plugin config fallback (${DEFAULT_MAX_ITERATIONS_FALLBACK}).`
 
 const CANCEL_RALPH_TEMPLATE = `Cancel the currently active Ralph Loop.
 

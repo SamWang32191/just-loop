@@ -26,6 +26,27 @@ describe("plugin handlers", () => {
     expect(cancelLoop).not.toHaveBeenCalled()
   })
 
+  it("wires canonical equals-style /ralph-loop flags to startLoop with parsed options", async () => {
+    const startLoop = mock(async () => undefined)
+    const cancelLoop = mock(async () => undefined)
+
+    await handleChatMessage("/ralph-loop --max-iterations=7 --completion-promise=SHIP --strategy=continue task", {
+      startLoop,
+      cancelLoop,
+    } as any, "session-1b")
+
+    expect(startLoop).toHaveBeenCalledTimes(1)
+    expect(startLoop).toHaveBeenCalledWith(
+      "session-1b",
+      "task",
+      {
+        maxIterations: 7,
+        completionPromise: "SHIP",
+      },
+    )
+    expect(cancelLoop).not.toHaveBeenCalled()
+  })
+
   it("wires /cancel-ralph to cancelLoop", async () => {
     const startLoop = mock(async () => undefined)
     const cancelLoop = mock(async () => undefined)
@@ -259,6 +280,9 @@ describe("createPlugin", () => {
     expect(commands["ralph-loop"]).toBeDefined()
     expect(commands["ralph-loop"]?.description).toContain("Start self-referential development loop")
     expect(commands["ralph-loop"]?.template).toContain("You are starting a Ralph Loop")
+    expect(commands["ralph-loop"]?.template).toContain("--max-iterations=N")
+    expect(commands["ralph-loop"]?.template).toContain("--completion-promise=TEXT")
+    expect(commands["ralph-loop"]?.template).toContain("--strategy=continue")
     expect(commands["cancel-ralph"]).toBeDefined()
     expect(commands["cancel-ralph"]?.description).toContain("Cancel active Ralph Loop")
     expect(commands["cancel-ralph"]?.template).toContain("Cancel the currently active Ralph Loop")

@@ -35,6 +35,17 @@ export function parseRalphLoopCommand(input: string): ParsedRalphLoopCommand | n
       break
     }
 
+    if (/^--max-iterations=/.test(rest)) {
+      const valueMatch = rest.match(/^--max-iterations=([0-9]+)(?:\s+|$)/)
+      if (!valueMatch) {
+        throw new Error("invalid --max-iterations value")
+      }
+
+      maxIterations = Number(valueMatch[1])
+      rest = rest.slice(valueMatch[0].length)
+      continue
+    }
+
     if (/^--max(?:\s|$)/.test(rest)) {
       const valueMatch = rest.match(/^--max(?:\s+(\S+))(?:\s+|$)/)
       if (!valueMatch || !/^[0-9]+$/.test(valueMatch[1])) {
@@ -57,10 +68,39 @@ export function parseRalphLoopCommand(input: string): ParsedRalphLoopCommand | n
       continue
     }
 
+    if (/^--completion-promise=/.test(rest)) {
+      const promiseMatch = rest.match(/^--completion-promise=([^\s]+)(?:\s+|$)/)
+      if (!promiseMatch) {
+        throw new Error("invalid --completion-promise format")
+      }
+
+      completionPromise = promiseMatch[1]
+      rest = rest.slice(promiseMatch[0].length)
+      continue
+    }
+
     if (/^--strategy(?:\s|$)/.test(rest)) {
       const strategyMatch = rest.match(/^--strategy(?:\s+(\S+))(?:\s+|$)/)
       if (!strategyMatch) {
         throw new Error("invalid --strategy value")
+      }
+
+      if (strategyMatch[1] === "reset") {
+        throw new Error("reset strategy is not supported in v1")
+      }
+
+      throw new Error("invalid --strategy value")
+    }
+
+    if (/^--strategy=/.test(rest)) {
+      const strategyMatch = rest.match(/^--strategy=([^\s]+)(?:\s+|$)/)
+      if (!strategyMatch) {
+        throw new Error("invalid --strategy value")
+      }
+
+      if (strategyMatch[1] === "continue") {
+        rest = rest.slice(strategyMatch[0].length)
+        continue
       }
 
       if (strategyMatch[1] === "reset") {

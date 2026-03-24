@@ -24,6 +24,17 @@ describe("parseRalphLoopCommand", () => {
     })
   })
 
+  it("parses canonical equals-style flags and continue strategy", () => {
+    expect(
+      parseRalphLoopCommand("/ralph-loop --max-iterations=7 --completion-promise=SHIP --strategy=continue task"),
+    ).toEqual({
+      kind: "start",
+      prompt: "task",
+      maxIterations: 7,
+      completionPromise: "SHIP",
+    })
+  })
+
   it("parses custom completion promise", () => {
     expect(
       parseRalphLoopCommand('/ralph-loop --promise "<promise>SHIP</promise>" build plugin'),
