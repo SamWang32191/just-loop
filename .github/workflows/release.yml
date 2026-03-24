@@ -38,16 +38,40 @@ jobs:
     runs-on: ubuntu-latest
     if: inputs.auto-bump != 'no'
     outputs:
-      bumped_version: ${{ steps.bump.outputs[inputs.auto-bump] }}
+      bumped_version: ${{ steps.bump.outputs.bumped_version }}
     steps:
       - uses: actions/checkout@v5
-      - id: current-version
-        run: echo "version=$(node -p 'require(\"./package.json\").version')" >> "$GITHUB_OUTPUT"
       - id: bump
-        uses: WyriHaximus/github-action-next-semvers@v1
-        with:
-          version: ${{ steps.current-version.outputs.version }}
-          bump: ${{ inputs.auto-bump }}
+        env:
+          AUTO_BUMP: ${{ inputs.auto-bump }}
+        run: |
+          set -euo pipefail
+          CURRENT_VERSION="$(node -p 'require("./package.json").version')"
+          BUMPED_VERSION="$(
+            node -e '
+              const version = process.argv[1];
+              const bump = process.argv[2];
+              const parts = version.split(".").map(Number);
+
+              if (parts.length !== 3 || !parts.every(Number.isInteger)) {
+                throw new Error(`Invalid semver version: ${version}`);
+              }
+
+              const [major, minor, patch] = parts;
+              let nextVersion;
+
+              if (bump === "patch") {
+                nextVersion = `${major}.${minor}.${patch + 1}`;
+              } else if (bump === "minor") {
+                nextVersion = `${major}.${minor + 1}.0`;
+              } else {
+                throw new Error(`Unsupported auto bump: ${bump}`);
+              }
+
+              console.log(nextVersion);
+            ' "$CURRENT_VERSION" "$AUTO_BUMP"
+          )"
+          echo "bumped_version=${BUMPED_VERSION}" >> "$GITHUB_OUTPUT"
 
   ensure-version-not-exists:
     runs-on: ubuntu-latest
