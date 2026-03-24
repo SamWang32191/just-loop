@@ -453,6 +453,80 @@ describe("loop-core", () => {
     expect(await readState(root)).toBeNull()
   })
 
+  it("clears stale state when an unrelated idle event finds the tracked session missing", async () => {
+    const root = await createRoot()
+    const prompt = mock(async () => undefined)
+    const sessionExists = mock(async (sessionID: string) => {
+      expect(sessionID).toBe("s1")
+      return false
+    })
+    const core = createLoopCore({
+      rootDir: root,
+      adapter: {
+        getMessageCount: mock(async () => 0),
+        getMessages: mock(async () => [{ role: "assistant", text: "still working" }]),
+        prompt,
+        sessionExists,
+        abortSession: mock(async () => undefined),
+      },
+    })
+
+    await writeState(root, {
+      active: true,
+      session_id: "s1",
+      prompt: "build plugin",
+      iteration: 2,
+      max_iterations: 3,
+      completion_promise: DEFAULT_COMPLETION_PROMISE,
+      message_count_at_start: 0,
+      started_at: "2026-03-23T00:00:00.000Z",
+    })
+
+    await core.handleEvent({ type: "session.idle", sessionID: "s2" })
+
+    expect(sessionExists).toHaveBeenCalledTimes(1)
+    expect(prompt).not.toHaveBeenCalled()
+    expect(await readState(root)).toBeNull()
+  })
+
+  it("preserves state when an unrelated idle event finds the tracked session still exists", async () => {
+    const root = await createRoot()
+    const prompt = mock(async () => undefined)
+    const sessionExists = mock(async (sessionID: string) => {
+      expect(sessionID).toBe("s1")
+      return true
+    })
+    const core = createLoopCore({
+      rootDir: root,
+      adapter: {
+        getMessageCount: mock(async () => 0),
+        getMessages: mock(async () => [{ role: "assistant", text: "still working" }]),
+        prompt,
+        sessionExists,
+        abortSession: mock(async () => undefined),
+      },
+    })
+
+    await writeState(root, {
+      active: true,
+      session_id: "s1",
+      prompt: "build plugin",
+      iteration: 2,
+      max_iterations: 3,
+      completion_promise: DEFAULT_COMPLETION_PROMISE,
+      message_count_at_start: 0,
+      started_at: "2026-03-23T00:00:00.000Z",
+    })
+
+    await core.handleEvent({ type: "session.idle", sessionID: "s2" })
+
+    expect(sessionExists).toHaveBeenCalledTimes(1)
+    expect(prompt).not.toHaveBeenCalled()
+    const state = await readState(root)
+    expect(state?.session_id).toBe("s1")
+    expect(state?.iteration).toBe(2)
+  })
+
   it("does not repeat continuation for the same message set across consecutive idles", async () => {
     const root = await createRoot()
     const getMessages = mock(async () => [

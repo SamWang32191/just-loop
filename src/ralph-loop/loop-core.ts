@@ -87,7 +87,15 @@ export function createLoopCore(deps: CreateLoopCoreDeps) {
 
       try {
         const state = await readState(deps.rootDir)
-        if (!state || !state.active || state.session_id !== event.sessionID) return
+        if (!state || !state.active) return
+        if (state.session_id !== event.sessionID) {
+          const stillExists = await deps.adapter.sessionExists(state.session_id)
+          if (!stillExists) {
+            await clearState(deps.rootDir)
+          }
+
+          return
+        }
         const incarnationToken = getToken(state)
         const inFlightToken = inFlight.get(event.sessionID)
         if (inFlightToken === incarnationToken) return
