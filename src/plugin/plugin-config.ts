@@ -10,7 +10,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 function parseEnabled(value: unknown) {
-  if (value === undefined) return false
+  if (value === undefined) return true
   if (typeof value === "boolean") return value
   throw new Error("ralph_loop.enabled must be a boolean")
 }

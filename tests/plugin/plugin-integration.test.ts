@@ -358,7 +358,7 @@ describe("createPlugin", () => {
     expect(core.handleEvent).not.toHaveBeenCalled()
   })
 
-  it("keeps ralph_loop disabled when enabled is omitted", async () => {
+  it("keeps ralph_loop enabled when enabled is omitted", async () => {
     const core = {
       startLoop: mock(async () => undefined),
       cancelLoop: mock(async () => undefined),
@@ -398,8 +398,8 @@ describe("createPlugin", () => {
     await plugin["tool.execute.before"]?.(
       {
         tool: "skill",
-        sessionID: "session-implicit-disabled",
-        callID: "call-implicit-disabled",
+        sessionID: "session-implicit-enabled",
+        callID: "call-implicit-enabled",
       } as any,
       {
         args: {
@@ -408,10 +408,68 @@ describe("createPlugin", () => {
       } as any,
     )
 
-    expect(config.command).toEqual({})
-    expect(core.startLoop).not.toHaveBeenCalled()
+    const commands = config.command as Record<string, { description?: string; template?: string }>
+    expect(commands["ralph-loop"]).toBeDefined()
+    expect(commands["cancel-ralph"]).toBeDefined()
+    expect(core.startLoop).toHaveBeenCalledWith("session-implicit-enabled", "build plugin", {
+      maxIterations: 7,
+      completionPromise: DEFAULT_COMPLETION_PROMISE,
+    })
     expect(core.cancelLoop).not.toHaveBeenCalled()
-    expect(core.handleEvent).not.toHaveBeenCalled()
+  })
+
+  it("runs formal command hook when enabled is omitted", async () => {
+    const core = {
+      startLoop: mock(async () => undefined),
+      cancelLoop: mock(async () => undefined),
+      handleEvent: mock(async () => undefined),
+    }
+
+    const plugin = await createPlugin(
+      {
+        directory: "/workspace",
+        client: {
+          session: {
+            messages: mock(async () => []),
+            promptAsync: mock(async () => undefined),
+            prompt: mock(async () => undefined),
+            abort: mock(async () => undefined),
+          },
+        },
+      } as any,
+      {
+        createOpenCodeHostAdapter: mock(() => ({
+          getMessageCount: mock(async () => 0),
+          getMessages: mock(async () => []),
+          prompt: mock(async () => undefined),
+          abortSession: mock(async () => undefined),
+          sessionExists: mock(async () => true),
+        }) as any),
+        createLoopCore: mock(() => core as any),
+      },
+    )
+
+    await plugin.config?.({
+      ralph_loop: {
+        default_max_iterations: 7,
+      },
+    } as any)
+
+    await plugin["command.execute.before"]?.(
+      {
+        command: "ralph-loop",
+        sessionID: "session-implicit-command-enabled",
+        arguments: "build plugin",
+      } as any,
+      {
+        parts: [],
+      } as any,
+    )
+
+    expect(core.startLoop).toHaveBeenCalledWith("session-implicit-command-enabled", "build plugin", {
+      maxIterations: 7,
+      completionPromise: DEFAULT_COMPLETION_PROMISE,
+    })
   })
 
   it("rejects invalid top-level ralph_loop config values", async () => {
