@@ -16,6 +16,10 @@ describe("package metadata", () => {
     expect(packageJson.description).toBe("OpenCode plugin package for just-loop.")
     expect(packageJson.type).toBe("module")
     expect(packageJson.license).toBe("MIT")
+    expect(packageJson.repository).toEqual({
+      type: "git",
+      url: "https://github.com/SamWang32191/just-loop",
+    })
     expect(packageJson.main).toBe("./dist/src/index.js")
     expect(packageJson.types).toBe("./dist/src/index.d.ts")
     expect(packageJson.exports["."].import).toBe("./dist/src/index.js")
