@@ -5,6 +5,7 @@
 | Card | Scope | Tags | Date |
 |---|---|---|---|
 | `npm-publish-needs-real-tarball-smoke` | project | npm, publish, tarball, typescript, smoke-test | 2026-03-24 |
+| `opencode-formal-command-needs-config-and-tool-hook` | project | opencode, commands, plugin, hooks, ralph-loop | 2026-03-24 |
 | `git-worktree-root-rename-order` | project | git, worktree, rename, path | 2026-03-23 |
 | `bun-test-needs-build-artifacts` | project | bun, test, build, dist | 2026-03-23 |
 | `ralph-loop-state-store-path` | project | ralph-loop, storage, path, state-file | 2026-03-23 |

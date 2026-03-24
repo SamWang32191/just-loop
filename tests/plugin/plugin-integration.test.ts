@@ -48,7 +48,7 @@ describe("plugin handlers", () => {
     expect(cancelLoop).not.toHaveBeenCalled()
   })
 
-  it("extracts text from output.parts through the real plugin hook", async () => {
+  it("does not route raw slash text from chat.message through the real plugin hook", async () => {
     const startLoop = mock(async () => undefined)
     const cancelLoop = mock(async () => undefined)
 
@@ -84,11 +84,8 @@ describe("plugin handlers", () => {
       } as any,
     )
 
-    expect(startLoop).toHaveBeenCalledTimes(1)
-    expect(startLoop).toHaveBeenCalledWith("session-4", "build plugin", {
-      maxIterations: undefined,
-      completionPromise: DEFAULT_COMPLETION_PROMISE,
-    })
+    expect(startLoop).not.toHaveBeenCalled()
+    expect(cancelLoop).not.toHaveBeenCalled()
   })
 
   it("does not accept the legacy input.output shape", async () => {
@@ -163,9 +160,17 @@ describe("createPlugin", () => {
       },
     )
 
-    await plugin["chat.message"](
-      { sessionID: "s1" } as any,
-      { parts: [{ type: "text", text: "/ralph-loop build" }, { type: "text", text: " plugin" }] } as any,
+    await plugin["tool.execute.before"]?.(
+      {
+        tool: "skill",
+        sessionID: "s1",
+        callID: "call-3",
+      } as any,
+      {
+        args: {
+          name: "/ralph-loop build plugin",
+        },
+      } as any,
     )
     await plugin.event({ event: { type: "session.idle", properties: { sessionID: "s1" } } } as any)
 
@@ -176,5 +181,185 @@ describe("createPlugin", () => {
       completionPromise: DEFAULT_COMPLETION_PROMISE,
     })
     expect(core.handleEvent).toHaveBeenCalledWith({ type: "session.idle", sessionID: "s1" })
+  })
+
+  it("does not start the loop from raw slash text in chat.message", async () => {
+    const core = {
+      startLoop: mock(async () => undefined),
+      cancelLoop: mock(async () => undefined),
+      handleEvent: mock(async () => undefined),
+    }
+
+    const plugin = await createPlugin(
+      {
+        directory: "/workspace",
+        client: {
+          session: {
+            messages: mock(async () => []),
+            promptAsync: mock(async () => undefined),
+            prompt: mock(async () => undefined),
+            abort: mock(async () => undefined),
+          },
+        },
+      } as any,
+      {
+        createOpenCodeHostAdapter: mock(() => ({
+          getMessageCount: mock(async () => 0),
+          getMessages: mock(async () => []),
+          prompt: mock(async () => undefined),
+          abortSession: mock(async () => undefined),
+          sessionExists: mock(async () => true),
+        }) as any),
+        createLoopCore: mock(() => core as any),
+      },
+    )
+
+    await plugin["chat.message"](
+      { sessionID: "s1" } as any,
+      { parts: [{ type: "text", text: "/ralph-loop build plugin" }] } as any,
+    )
+
+    expect(core.startLoop).not.toHaveBeenCalled()
+    expect(core.cancelLoop).not.toHaveBeenCalled()
+  })
+
+  it("registers formal ralph-loop and cancel-ralph commands in config", async () => {
+    const plugin = await createPlugin(
+      {
+        directory: "/workspace",
+        client: {
+          session: {
+            messages: mock(async () => []),
+            promptAsync: mock(async () => undefined),
+            prompt: mock(async () => undefined),
+            abort: mock(async () => undefined),
+          },
+        },
+      } as any,
+      {
+        createOpenCodeHostAdapter: mock(() => ({
+          getMessageCount: mock(async () => 0),
+          getMessages: mock(async () => []),
+          prompt: mock(async () => undefined),
+          abortSession: mock(async () => undefined),
+          sessionExists: mock(async () => true),
+        }) as any),
+        createLoopCore: mock(() => ({
+          startLoop: mock(async () => undefined),
+          cancelLoop: mock(async () => undefined),
+          handleEvent: mock(async () => undefined),
+        }) as any),
+      },
+    )
+
+    const config: Record<string, unknown> = {}
+    await plugin.config?.(config as any)
+
+    const commands = config.command as Record<string, { description?: string; template?: string }>
+    expect(commands["ralph-loop"]).toBeDefined()
+    expect(commands["ralph-loop"]?.description).toContain("Start self-referential development loop")
+    expect(commands["ralph-loop"]?.template).toContain("You are starting a Ralph Loop")
+    expect(commands["cancel-ralph"]).toBeDefined()
+    expect(commands["cancel-ralph"]?.description).toContain("Cancel active Ralph Loop")
+    expect(commands["cancel-ralph"]?.template).toContain("Cancel the currently active Ralph Loop")
+  })
+
+  it("starts the loop when /ralph-loop executes as a formal command", async () => {
+    const core = {
+      startLoop: mock(async () => undefined),
+      cancelLoop: mock(async () => undefined),
+      handleEvent: mock(async () => undefined),
+    }
+
+    const plugin = await createPlugin(
+      {
+        directory: "/workspace",
+        client: {
+          session: {
+            messages: mock(async () => []),
+            promptAsync: mock(async () => undefined),
+            prompt: mock(async () => undefined),
+            abort: mock(async () => undefined),
+          },
+        },
+      } as any,
+      {
+        createOpenCodeHostAdapter: mock(() => ({
+          getMessageCount: mock(async () => 0),
+          getMessages: mock(async () => []),
+          prompt: mock(async () => undefined),
+          abortSession: mock(async () => undefined),
+          sessionExists: mock(async () => true),
+        }) as any),
+        createLoopCore: mock(() => core as any),
+      },
+    )
+
+    await plugin["tool.execute.before"]?.(
+      {
+        tool: "skill",
+        sessionID: "session-command",
+        callID: "call-1",
+      } as any,
+      {
+        args: {
+          name: "/ralph-loop --max 4 build plugin",
+        },
+      } as any,
+    )
+
+    expect(core.startLoop).toHaveBeenCalledWith("session-command", "build plugin", {
+      maxIterations: 4,
+      completionPromise: DEFAULT_COMPLETION_PROMISE,
+    })
+    expect(core.cancelLoop).not.toHaveBeenCalled()
+  })
+
+  it("cancels the loop when /cancel-ralph executes as a formal command", async () => {
+    const core = {
+      startLoop: mock(async () => undefined),
+      cancelLoop: mock(async () => undefined),
+      handleEvent: mock(async () => undefined),
+    }
+
+    const plugin = await createPlugin(
+      {
+        directory: "/workspace",
+        client: {
+          session: {
+            messages: mock(async () => []),
+            promptAsync: mock(async () => undefined),
+            prompt: mock(async () => undefined),
+            abort: mock(async () => undefined),
+          },
+        },
+      } as any,
+      {
+        createOpenCodeHostAdapter: mock(() => ({
+          getMessageCount: mock(async () => 0),
+          getMessages: mock(async () => []),
+          prompt: mock(async () => undefined),
+          abortSession: mock(async () => undefined),
+          sessionExists: mock(async () => true),
+        }) as any),
+        createLoopCore: mock(() => core as any),
+      },
+    )
+
+    await plugin["tool.execute.before"]?.(
+      {
+        tool: "skill",
+        sessionID: "session-command",
+        callID: "call-2",
+      } as any,
+      {
+        args: {
+          name: "/cancel-ralph",
+        },
+      } as any,
+    )
+
+    expect(core.cancelLoop).toHaveBeenCalledWith("session-command")
+    expect(core.startLoop).not.toHaveBeenCalled()
   })
 })

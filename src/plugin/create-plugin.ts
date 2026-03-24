@@ -1,8 +1,9 @@
 import { createOpenCodeHostAdapter } from "../host-adapter/opencode-host-adapter.js"
 import type { OpenCodeHostAdapterContext } from "../host-adapter/types.js"
 import { createLoopCore } from "../ralph-loop/loop-core.js"
-import { handleChatMessage } from "./chat-message-handler.js"
+import { handleConfig } from "./config-handler.js"
 import { handleEvent } from "./event-handler.js"
+import { handleToolExecuteBefore } from "./tool-execute-before-handler.js"
 import type { Plugin } from "@opencode-ai/plugin"
 
 export type CreatePluginDeps = {
@@ -28,9 +29,23 @@ type EventInput = {
   event?: unknown
 }
 
+type ToolExecuteBeforeInput = {
+  tool?: unknown
+  sessionID?: unknown
+  callID?: unknown
+}
+
+type ToolExecuteBeforeOutput = {
+  args?: {
+    name?: unknown
+  }
+}
+
 export type PluginHooks = {
   "chat.message": (input: ChatMessageInput, output: ChatMessageOutput) => Promise<void>
   event: (input: EventInput) => Promise<void>
+  config: (input: Record<string, unknown>) => Promise<void>
+  "tool.execute.before": (input: ToolExecuteBeforeInput, output: ToolExecuteBeforeOutput) => Promise<void>
 }
 
 function extractSessionID(input: ChatMessageInput) {
@@ -74,15 +89,20 @@ export async function createPlugin(
   const core = createCore({ rootDir: ctx.directory, adapter })
 
   return {
+    config: async (input: Record<string, unknown>) => {
+      await handleConfig(input)
+    },
     "chat.message": async (input: ChatMessageInput, output: ChatMessageOutput) => {
       const sessionID = extractSessionID(input)
       if (!sessionID) return
-
-      await handleChatMessage(extractChatText(output.parts), core, sessionID)
+      extractChatText(output.parts)
     },
     event: async (input: EventInput) => {
       if (!input.event) return
       await handleEvent(input.event, core)
+    },
+    "tool.execute.before": async (input: ToolExecuteBeforeInput, output: ToolExecuteBeforeOutput) => {
+      await handleToolExecuteBefore(input, output, core)
     },
   }
 }
