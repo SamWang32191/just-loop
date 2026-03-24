@@ -1,7 +1,7 @@
 {
   "name": "@w32191/just-loop",
   "type": "module",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "OpenCode plugin package for just-loop.",
   "license": "MIT",
   "main": "./dist/src/index.js",
