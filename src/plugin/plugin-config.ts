@@ -10,7 +10,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 function parseEnabled(value: unknown) {
-  if (value === undefined) return true
+  if (value === undefined) return false
   if (typeof value === "boolean") return value
   throw new Error("ralph_loop.enabled must be a boolean")
 }
@@ -28,6 +28,10 @@ function parseDefaultStrategy(value: unknown): RalphLoopRuntimeConfig["defaultSt
 }
 
 export function resolvePluginConfig(input: ConfigInput): RalphLoopRuntimeConfig {
+  if (input.ralph_loop !== undefined && !isObject(input.ralph_loop)) {
+    throw new Error("ralph_loop must be an object")
+  }
+
   const rawConfig = isObject(input.ralph_loop) ? (input.ralph_loop as RalphLoopPluginConfigInput) : {}
 
   return {

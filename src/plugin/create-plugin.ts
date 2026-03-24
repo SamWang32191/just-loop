@@ -1,11 +1,11 @@
 import { createOpenCodeHostAdapter } from "../host-adapter/opencode-host-adapter.js"
 import type { OpenCodeHostAdapterContext } from "../host-adapter/types.js"
-import { parseRalphLoopCommand } from "../commands/parse-ralph-loop-command.js"
 import { createLoopCore } from "../ralph-loop/loop-core.js"
 import type { RalphLoopRuntimeConfig } from "../ralph-loop/types.js"
 import { handleConfig } from "./config-handler.js"
 import { handleEvent } from "./event-handler.js"
 import { resolvePluginConfig } from "./plugin-config.js"
+import { handleToolExecuteBefore } from "./tool-execute-before-handler.js"
 import type { Plugin } from "@opencode-ai/plugin"
 
 export type CreatePluginDeps = {
@@ -111,22 +111,8 @@ export async function createPlugin(
     },
     "tool.execute.before": async (input: ToolExecuteBeforeInput, output: ToolExecuteBeforeOutput) => {
       if (!resolvedConfig.enabled) return
-      if (input.tool !== "skill") return
-      if (typeof input.sessionID !== "string") return
-      if (typeof output.args?.name !== "string") return
-
-      const normalizedCommand = output.args.name.startsWith("/") ? output.args.name : `/${output.args.name}`
-      const command = parseRalphLoopCommand(normalizedCommand)
-      if (!command) return
-
-      if (command.kind === "cancel") {
-        await core.cancelLoop(input.sessionID)
-        return
-      }
-
-      await core.startLoop(input.sessionID, command.prompt, {
-        maxIterations: command.maxIterations ?? resolvedConfig.defaultMaxIterations,
-        completionPromise: command.completionPromise,
+      await handleToolExecuteBefore(input, output, core, {
+        defaultMaxIterations: resolvedConfig.defaultMaxIterations,
       })
     },
   }

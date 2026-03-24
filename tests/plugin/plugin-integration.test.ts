@@ -184,6 +184,12 @@ describe("createPlugin", () => {
       },
     )
 
+    await plugin.config?.({
+      ralph_loop: {
+        enabled: true,
+      },
+    } as any)
+
     await plugin["tool.execute.before"]?.(
       {
         tool: "skill",
@@ -276,7 +282,11 @@ describe("createPlugin", () => {
       },
     )
 
-    const config: Record<string, unknown> = {}
+    const config: Record<string, unknown> = {
+      ralph_loop: {
+        enabled: true,
+      },
+    }
     await plugin.config?.(config as any)
 
     const commands = config.command as Record<string, { description?: string; template?: string }>
@@ -348,6 +358,99 @@ describe("createPlugin", () => {
     expect(core.handleEvent).not.toHaveBeenCalled()
   })
 
+  it("keeps ralph_loop disabled when enabled is omitted", async () => {
+    const core = {
+      startLoop: mock(async () => undefined),
+      cancelLoop: mock(async () => undefined),
+      handleEvent: mock(async () => undefined),
+    }
+
+    const plugin = await createPlugin(
+      {
+        directory: "/workspace",
+        client: {
+          session: {
+            messages: mock(async () => []),
+            promptAsync: mock(async () => undefined),
+            prompt: mock(async () => undefined),
+            abort: mock(async () => undefined),
+          },
+        },
+      } as any,
+      {
+        createOpenCodeHostAdapter: mock(() => ({
+          getMessageCount: mock(async () => 0),
+          getMessages: mock(async () => []),
+          prompt: mock(async () => undefined),
+          abortSession: mock(async () => undefined),
+          sessionExists: mock(async () => true),
+        }) as any),
+        createLoopCore: mock(() => core as any),
+      },
+    )
+
+    const config: Record<string, unknown> = {
+      ralph_loop: {
+        default_max_iterations: 7,
+      },
+    }
+    await plugin.config?.(config as any)
+    await plugin["tool.execute.before"]?.(
+      {
+        tool: "skill",
+        sessionID: "session-implicit-disabled",
+        callID: "call-implicit-disabled",
+      } as any,
+      {
+        args: {
+          name: "/ralph-loop build plugin",
+        },
+      } as any,
+    )
+
+    expect(config.command).toEqual({})
+    expect(core.startLoop).not.toHaveBeenCalled()
+    expect(core.cancelLoop).not.toHaveBeenCalled()
+    expect(core.handleEvent).not.toHaveBeenCalled()
+  })
+
+  it("rejects invalid top-level ralph_loop config values", async () => {
+    const plugin = await createPlugin(
+      {
+        directory: "/workspace",
+        client: {
+          session: {
+            messages: mock(async () => []),
+            promptAsync: mock(async () => undefined),
+            prompt: mock(async () => undefined),
+            abort: mock(async () => undefined),
+          },
+        },
+      } as any,
+      {
+        createOpenCodeHostAdapter: mock(() => ({
+          getMessageCount: mock(async () => 0),
+          getMessages: mock(async () => []),
+          prompt: mock(async () => undefined),
+          abortSession: mock(async () => undefined),
+          sessionExists: mock(async () => true),
+        }) as any),
+        createLoopCore: mock(() => ({
+          startLoop: mock(async () => undefined),
+          cancelLoop: mock(async () => undefined),
+          handleEvent: mock(async () => undefined),
+        }) as any),
+      },
+    )
+
+    await expect(plugin.config?.({ ralph_loop: false } as any)).rejects.toThrow(
+      "ralph_loop must be an object",
+    )
+    await expect(plugin.config?.({ ralph_loop: "off" } as any)).rejects.toThrow(
+      "ralph_loop must be an object",
+    )
+  })
+
   it("starts the loop when /ralph-loop executes as a formal command", async () => {
     const core = {
       startLoop: mock(async () => undefined),
@@ -378,6 +481,12 @@ describe("createPlugin", () => {
         createLoopCore: mock(() => core as any),
       },
     )
+
+    await plugin.config?.({
+      ralph_loop: {
+        enabled: true,
+      },
+    } as any)
 
     await plugin["tool.execute.before"]?.(
       {
@@ -432,6 +541,7 @@ describe("createPlugin", () => {
 
     await plugin.config?.({
       ralph_loop: {
+        enabled: true,
         default_max_iterations: 7,
       },
     } as any)
@@ -484,6 +594,12 @@ describe("createPlugin", () => {
         createLoopCore: mock(() => core as any),
       },
     )
+
+    await plugin.config?.({
+      ralph_loop: {
+        enabled: true,
+      },
+    } as any)
 
     await plugin["tool.execute.before"]?.(
       {

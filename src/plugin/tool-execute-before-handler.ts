@@ -5,6 +5,10 @@ type LoopCore = {
   cancelLoop: (sessionID: string) => Promise<unknown>
 }
 
+type ToolExecuteBeforeOptions = {
+  defaultMaxIterations?: number
+}
+
 type ToolExecuteBeforeInput = {
   tool?: unknown
   sessionID?: unknown
@@ -24,6 +28,7 @@ export async function handleToolExecuteBefore(
   input: ToolExecuteBeforeInput,
   output: ToolExecuteBeforeOutput,
   core: LoopCore,
+  options: ToolExecuteBeforeOptions = {},
 ) {
   if (input.tool !== "skill") return
   if (typeof input.sessionID !== "string") return
@@ -38,7 +43,7 @@ export async function handleToolExecuteBefore(
   }
 
   await core.startLoop(input.sessionID, command.prompt, {
-    maxIterations: command.maxIterations,
+    maxIterations: command.maxIterations ?? options.defaultMaxIterations,
     completionPromise: command.completionPromise,
   })
 }
