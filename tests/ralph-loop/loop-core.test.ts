@@ -3,7 +3,10 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createOpenCodeHostAdapter } from "../../src/host-adapter/opencode-host-adapter"
-import { DEFAULT_COMPLETION_PROMISE } from "../../src/ralph-loop/constants"
+import {
+  DEFAULT_COMPLETION_PROMISE,
+  DEFAULT_MAX_ITERATIONS_FALLBACK,
+} from "../../src/ralph-loop/constants"
 import { createLoopCore } from "../../src/ralph-loop/loop-core"
 import { readState, writeState } from "../../src/ralph-loop/state-store"
 import type { RalphLoopState } from "../../src/ralph-loop/types"
@@ -156,6 +159,58 @@ describe("loop-core", () => {
     expect(state?.active).toBe(true)
     expect(state?.iteration).toBe(1)
     expect(prompt).toHaveBeenCalledTimes(1)
+  })
+
+  it("uses configured default max iterations when startLoop omits maxIterations", async () => {
+    const root = await createRoot()
+    const getMessageCount = mock(async () => 0)
+    const getMessages = mock(async () => [{ role: "assistant", text: "still working" }])
+    const prompt = mock(async (_sessionID: string, text: string) => {
+      expect(text).toContain("Max iterations: 7")
+    })
+    const sessionExists = mock(async () => true)
+    const abortSession = mock(async () => undefined)
+
+    const core = createLoopCore({
+      rootDir: root,
+      adapter: { getMessageCount, getMessages, prompt, sessionExists, abortSession },
+      getConfig: () => ({
+        enabled: true,
+        defaultMaxIterations: 7,
+        defaultStrategy: "continue",
+      }),
+    })
+
+    await core.startLoop("s1", "build plugin")
+
+    const started = await readState(root)
+    expect(started?.max_iterations).toBe(7)
+
+    await core.handleEvent({ type: "session.idle", sessionID: "s1" })
+
+    expect(prompt).toHaveBeenCalledTimes(1)
+  })
+
+  it("falls back to the project default max iterations when runtime config omits it", async () => {
+    const root = await createRoot()
+    const getMessageCount = mock(async () => 0)
+    const sessionExists = mock(async () => true)
+    const abortSession = mock(async () => undefined)
+
+    const core = createLoopCore({
+      rootDir: root,
+      adapter: {
+        getMessageCount,
+        getMessages: mock(async () => [{ role: "assistant", text: "still working" }]),
+        prompt: mock(async () => undefined),
+        sessionExists,
+        abortSession,
+      },
+    })
+
+    await core.startLoop("s1", "build plugin")
+
+    expect((await readState(root))?.max_iterations).toBe(DEFAULT_MAX_ITERATIONS_FALLBACK)
   })
 
   it("clears state when completion is found", async () => {

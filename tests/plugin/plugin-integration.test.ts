@@ -2,7 +2,10 @@ import { describe, expect, it, mock } from "bun:test"
 import { createPlugin } from "../../src/plugin/create-plugin"
 import { handleChatMessage } from "../../src/plugin/chat-message-handler"
 import { handleEvent } from "../../src/plugin/event-handler"
-import { DEFAULT_COMPLETION_PROMISE } from "../../src/ralph-loop/constants"
+import {
+  DEFAULT_COMPLETION_PROMISE,
+  DEFAULT_MAX_ITERATIONS_FALLBACK,
+} from "../../src/ralph-loop/constants"
 
 describe("plugin handlers", () => {
   it("wires /ralph-loop to startLoop with parsed options", async () => {
@@ -198,7 +201,7 @@ describe("createPlugin", () => {
     expect(createOpenCodeHostAdapter).toHaveBeenCalledTimes(1)
     expect(createLoopCore).toHaveBeenCalledTimes(1)
     expect(core.startLoop).toHaveBeenCalledWith("s1", "build plugin", {
-      maxIterations: undefined,
+      maxIterations: DEFAULT_MAX_ITERATIONS_FALLBACK,
       completionPromise: DEFAULT_COMPLETION_PROMISE,
     })
     expect(core.handleEvent).toHaveBeenCalledWith({ type: "session.idle", sessionID: "s1" })
@@ -288,6 +291,63 @@ describe("createPlugin", () => {
     expect(commands["cancel-ralph"]?.template).toContain("Cancel the currently active Ralph Loop")
   })
 
+  it("does not register commands or runtime side effects when ralph_loop is disabled", async () => {
+    const core = {
+      startLoop: mock(async () => undefined),
+      cancelLoop: mock(async () => undefined),
+      handleEvent: mock(async () => undefined),
+    }
+
+    const plugin = await createPlugin(
+      {
+        directory: "/workspace",
+        client: {
+          session: {
+            messages: mock(async () => []),
+            promptAsync: mock(async () => undefined),
+            prompt: mock(async () => undefined),
+            abort: mock(async () => undefined),
+          },
+        },
+      } as any,
+      {
+        createOpenCodeHostAdapter: mock(() => ({
+          getMessageCount: mock(async () => 0),
+          getMessages: mock(async () => []),
+          prompt: mock(async () => undefined),
+          abortSession: mock(async () => undefined),
+          sessionExists: mock(async () => true),
+        }) as any),
+        createLoopCore: mock(() => core as any),
+      },
+    )
+
+    const config: Record<string, unknown> = {
+      ralph_loop: {
+        enabled: false,
+      },
+    }
+    await plugin.config?.(config as any)
+    await plugin["tool.execute.before"]?.(
+      {
+        tool: "skill",
+        sessionID: "session-disabled",
+        callID: "call-disabled",
+      } as any,
+      {
+        args: {
+          name: "/ralph-loop build plugin",
+        },
+      } as any,
+    )
+    await plugin.event({ event: { type: "session.idle", properties: { sessionID: "session-disabled" } } } as any)
+
+    expect(config.command).toEqual({})
+    expect(core.startLoop).not.toHaveBeenCalled()
+    expect(core.cancelLoop).not.toHaveBeenCalled()
+    expect(core.handleEvent).not.toHaveBeenCalled()
+  })
+
   it("starts the loop when /ralph-loop executes as a formal command", async () => {
     const core = {
       startLoop: mock(async () => undefined),
@@ -337,6 +397,61 @@ describe("createPlugin", () => {
       completionPromise: DEFAULT_COMPLETION_PROMISE,
     })
     expect(core.cancelLoop).not.toHaveBeenCalled()
+  })
+
+  it("uses configured default max iterations when /ralph-loop omits --max", async () => {
+    const core = {
+      startLoop: mock(async () => undefined),
+      cancelLoop: mock(async () => undefined),
+      handleEvent: mock(async () => undefined),
+    }
+
+    const plugin = await createPlugin(
+      {
+        directory: "/workspace",
+        client: {
+          session: {
+            messages: mock(async () => []),
+            promptAsync: mock(async () => undefined),
+            prompt: mock(async () => undefined),
+            abort: mock(async () => undefined),
+          },
+        },
+      } as any,
+      {
+        createOpenCodeHostAdapter: mock(() => ({
+          getMessageCount: mock(async () => 0),
+          getMessages: mock(async () => []),
+          prompt: mock(async () => undefined),
+          abortSession: mock(async () => undefined),
+          sessionExists: mock(async () => true),
+        }) as any),
+        createLoopCore: mock(() => core as any),
+      },
+    )
+
+    await plugin.config?.({
+      ralph_loop: {
+        default_max_iterations: 7,
+      },
+    } as any)
+    await plugin["tool.execute.before"]?.(
+      {
+        tool: "skill",
+        sessionID: "session-default-max",
+        callID: "call-default-max",
+      } as any,
+      {
+        args: {
+          name: "/ralph-loop build plugin",
+        },
+      } as any,
+    )
+
+    expect(core.startLoop).toHaveBeenCalledWith("session-default-max", "build plugin", {
+      maxIterations: 7,
+      completionPromise: DEFAULT_COMPLETION_PROMISE,
+    })
   })
 
   it("cancels the loop when /cancel-ralph executes as a formal command", async () => {

@@ -1,9 +1,11 @@
 import { createOpenCodeHostAdapter } from "../host-adapter/opencode-host-adapter.js"
 import type { OpenCodeHostAdapterContext } from "../host-adapter/types.js"
+import { parseRalphLoopCommand } from "../commands/parse-ralph-loop-command.js"
 import { createLoopCore } from "../ralph-loop/loop-core.js"
+import type { RalphLoopRuntimeConfig } from "../ralph-loop/types.js"
 import { handleConfig } from "./config-handler.js"
 import { handleEvent } from "./event-handler.js"
-import { handleToolExecuteBefore } from "./tool-execute-before-handler.js"
+import { resolvePluginConfig } from "./plugin-config.js"
 import type { Plugin } from "@opencode-ai/plugin"
 
 export type CreatePluginDeps = {
@@ -70,6 +72,7 @@ export async function createPlugin(
 
   const createAdapter = deps.createOpenCodeHostAdapter ?? createOpenCodeHostAdapter
   const createCore = deps.createLoopCore ?? createLoopCore
+  let resolvedConfig: RalphLoopRuntimeConfig = resolvePluginConfig({})
   const adapter = createAdapter({
     directory: ctx.directory,
     client: {
@@ -86,11 +89,15 @@ export async function createPlugin(
       },
     },
   } satisfies OpenCodeHostAdapterContext)
-  const core = createCore({ rootDir: ctx.directory, adapter })
+  const core = createCore({
+    rootDir: ctx.directory,
+    adapter,
+    getConfig: () => resolvedConfig,
+  })
 
   return {
     config: async (input: Record<string, unknown>) => {
-      await handleConfig(input)
+      resolvedConfig = await handleConfig(input)
     },
     "chat.message": async (input: ChatMessageInput, output: ChatMessageOutput) => {
       const sessionID = extractSessionID(input)
@@ -98,11 +105,29 @@ export async function createPlugin(
       extractChatText(output.parts)
     },
     event: async (input: EventInput) => {
+      if (!resolvedConfig.enabled) return
       if (!input.event) return
       await handleEvent(input.event, core)
     },
     "tool.execute.before": async (input: ToolExecuteBeforeInput, output: ToolExecuteBeforeOutput) => {
-      await handleToolExecuteBefore(input, output, core)
+      if (!resolvedConfig.enabled) return
+      if (input.tool !== "skill") return
+      if (typeof input.sessionID !== "string") return
+      if (typeof output.args?.name !== "string") return
+
+      const normalizedCommand = output.args.name.startsWith("/") ? output.args.name : `/${output.args.name}`
+      const command = parseRalphLoopCommand(normalizedCommand)
+      if (!command) return
+
+      if (command.kind === "cancel") {
+        await core.cancelLoop(input.sessionID)
+        return
+      }
+
+      await core.startLoop(input.sessionID, command.prompt, {
+        maxIterations: command.maxIterations ?? resolvedConfig.defaultMaxIterations,
+        completionPromise: command.completionPromise,
+      })
     },
   }
 }

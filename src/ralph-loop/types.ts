@@ -10,3 +10,17 @@ export type RalphLoopState = {
   incarnation_token?: string
   started_at: string
 }
+
+export type RalphLoopDefaultStrategy = "continue"
+
+export type RalphLoopRuntimeConfig = {
+  enabled: boolean
+  defaultMaxIterations: number
+  defaultStrategy: RalphLoopDefaultStrategy
+}
+
+export type RalphLoopPluginConfigInput = {
+  enabled?: unknown
+  default_max_iterations?: unknown
+  default_strategy?: unknown
+}

@@ -1,10 +1,10 @@
-import { DEFAULT_COMPLETION_PROMISE } from "./constants.js"
+import { DEFAULT_COMPLETION_PROMISE, DEFAULT_MAX_ITERATIONS_FALLBACK, DEFAULT_STRATEGY } from "./constants.js"
 import { buildContinuationPrompt } from "./continuation-prompt.js"
 import { detectCompletion } from "./completion-detector.js"
 import { clearState, readState, writeState } from "./state-store.js"
 import type { HostAdapter } from "../host-adapter/types.js"
 import { randomUUID } from "node:crypto"
-import type { RalphLoopState } from "./types.js"
+import type { RalphLoopRuntimeConfig, RalphLoopState } from "./types.js"
 
 export type LoopEvent =
   | { type: "session.idle"; sessionID: string }
@@ -14,6 +14,7 @@ export type LoopEvent =
 export type CreateLoopCoreDeps = {
   rootDir: string
   adapter: HostAdapter
+  getConfig?: () => RalphLoopRuntimeConfig
 }
 
 export type StartLoopOptions = {
@@ -23,12 +24,19 @@ export type StartLoopOptions = {
 
 export function createLoopCore(deps: CreateLoopCoreDeps) {
   const inFlight = new Map<string, string>()
+  const getConfig = () =>
+    deps.getConfig?.() ?? {
+      enabled: true,
+      defaultMaxIterations: DEFAULT_MAX_ITERATIONS_FALLBACK,
+      defaultStrategy: DEFAULT_STRATEGY,
+    }
 
   const getToken = (state: { incarnation_token?: string; started_at: string }) =>
     state.incarnation_token ?? state.started_at
 
   return {
     async startLoop(sessionID: string, prompt: string, options: StartLoopOptions = {}) {
+      const config = getConfig()
       const existing = await readState(deps.rootDir)
 
       if (existing?.active) {
@@ -49,7 +57,7 @@ export function createLoopCore(deps: CreateLoopCoreDeps) {
         session_id: sessionID,
         prompt,
         iteration: 0,
-        max_iterations: options.maxIterations,
+        max_iterations: options.maxIterations ?? config.defaultMaxIterations,
         completion_promise: options.completionPromise ?? DEFAULT_COMPLETION_PROMISE,
         message_count_at_start: messageCountAtStart,
         incarnation_token: incarnationToken,
