@@ -534,10 +534,15 @@ describe("loop-core", () => {
     const firstSessionExists = new Promise<boolean>((resolve) => {
       resolveFirstSessionExists = resolve
     })
+    let signalFirstSessionExistsCalled!: () => void
+    const firstSessionExistsCalled = new Promise<void>((resolve) => {
+      signalFirstSessionExistsCalled = resolve
+    })
     let sessionExistsCalls = 0
     const sessionExists = mock(async () => {
       sessionExistsCalls += 1
       if (sessionExistsCalls === 1) {
+        signalFirstSessionExistsCalled()
         return await firstSessionExists
       }
 
@@ -566,7 +571,7 @@ describe("loop-core", () => {
     })
 
     const idle = core.handleEvent({ type: "session.idle", sessionID: "s2" })
-    await Promise.resolve()
+    await firstSessionExistsCalled
 
     await core.startLoop("s1", "rebuild plugin", { maxIterations: 4 })
     resolveFirstSessionExists(false)
