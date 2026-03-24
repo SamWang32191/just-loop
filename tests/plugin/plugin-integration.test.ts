@@ -508,6 +508,61 @@ describe("createPlugin", () => {
     expect(core.cancelLoop).not.toHaveBeenCalled()
   })
 
+  it("starts the loop from command.execute.before for formally registered commands", async () => {
+    const core = {
+      startLoop: mock(async () => undefined),
+      cancelLoop: mock(async () => undefined),
+      handleEvent: mock(async () => undefined),
+    }
+
+    const plugin = await createPlugin(
+      {
+        directory: "/workspace",
+        client: {
+          session: {
+            messages: mock(async () => []),
+            promptAsync: mock(async () => undefined),
+            prompt: mock(async () => undefined),
+            abort: mock(async () => undefined),
+          },
+        },
+      } as any,
+      {
+        createOpenCodeHostAdapter: mock(() => ({
+          getMessageCount: mock(async () => 0),
+          getMessages: mock(async () => []),
+          prompt: mock(async () => undefined),
+          abortSession: mock(async () => undefined),
+          sessionExists: mock(async () => true),
+        }) as any),
+        createLoopCore: mock(() => core as any),
+      },
+    )
+
+    await plugin.config?.({
+      ralph_loop: {
+        enabled: true,
+      },
+    } as any)
+
+    await plugin["command.execute.before"]?.(
+      {
+        command: "ralph-loop",
+        sessionID: "session-command-hook",
+        arguments: "--max 6 build plugin",
+      } as any,
+      {
+        parts: [],
+      } as any,
+    )
+
+    expect(core.startLoop).toHaveBeenCalledWith("session-command-hook", "build plugin", {
+      maxIterations: 6,
+      completionPromise: DEFAULT_COMPLETION_PROMISE,
+    })
+    expect(core.cancelLoop).not.toHaveBeenCalled()
+  })
+
   it("uses configured default max iterations when /ralph-loop omits --max", async () => {
     const core = {
       startLoop: mock(async () => undefined),
@@ -615,6 +670,58 @@ describe("createPlugin", () => {
     )
 
     expect(core.cancelLoop).toHaveBeenCalledWith("session-command")
+    expect(core.startLoop).not.toHaveBeenCalled()
+  })
+
+  it("cancels the loop from command.execute.before for formally registered commands", async () => {
+    const core = {
+      startLoop: mock(async () => undefined),
+      cancelLoop: mock(async () => undefined),
+      handleEvent: mock(async () => undefined),
+    }
+
+    const plugin = await createPlugin(
+      {
+        directory: "/workspace",
+        client: {
+          session: {
+            messages: mock(async () => []),
+            promptAsync: mock(async () => undefined),
+            prompt: mock(async () => undefined),
+            abort: mock(async () => undefined),
+          },
+        },
+      } as any,
+      {
+        createOpenCodeHostAdapter: mock(() => ({
+          getMessageCount: mock(async () => 0),
+          getMessages: mock(async () => []),
+          prompt: mock(async () => undefined),
+          abortSession: mock(async () => undefined),
+          sessionExists: mock(async () => true),
+        }) as any),
+        createLoopCore: mock(() => core as any),
+      },
+    )
+
+    await plugin.config?.({
+      ralph_loop: {
+        enabled: true,
+      },
+    } as any)
+
+    await plugin["command.execute.before"]?.(
+      {
+        command: "cancel-ralph",
+        sessionID: "session-command-hook-cancel",
+        arguments: "",
+      } as any,
+      {
+        parts: [],
+      } as any,
+    )
+
+    expect(core.cancelLoop).toHaveBeenCalledWith("session-command-hook-cancel")
     expect(core.startLoop).not.toHaveBeenCalled()
   })
 })

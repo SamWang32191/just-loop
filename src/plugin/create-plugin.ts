@@ -2,6 +2,7 @@ import { createOpenCodeHostAdapter } from "../host-adapter/opencode-host-adapter
 import type { OpenCodeHostAdapterContext } from "../host-adapter/types.js"
 import { createLoopCore } from "../ralph-loop/loop-core.js"
 import type { RalphLoopRuntimeConfig } from "../ralph-loop/types.js"
+import { handleCommandExecuteBefore } from "./command-execute-before-handler.js"
 import { handleConfig } from "./config-handler.js"
 import { handleEvent } from "./event-handler.js"
 import { resolvePluginConfig } from "./plugin-config.js"
@@ -31,6 +32,16 @@ type EventInput = {
   event?: unknown
 }
 
+type CommandExecuteBeforeInput = {
+  command?: unknown
+  sessionID?: unknown
+  arguments?: unknown
+}
+
+type CommandExecuteBeforeOutput = {
+  parts?: unknown
+}
+
 type ToolExecuteBeforeInput = {
   tool?: unknown
   sessionID?: unknown
@@ -47,6 +58,7 @@ export type PluginHooks = {
   "chat.message": (input: ChatMessageInput, output: ChatMessageOutput) => Promise<void>
   event: (input: EventInput) => Promise<void>
   config: (input: Record<string, unknown>) => Promise<void>
+  "command.execute.before": (input: CommandExecuteBeforeInput, output: CommandExecuteBeforeOutput) => Promise<void>
   "tool.execute.before": (input: ToolExecuteBeforeInput, output: ToolExecuteBeforeOutput) => Promise<void>
 }
 
@@ -108,6 +120,12 @@ export async function createPlugin(
       if (!resolvedConfig.enabled) return
       if (!input.event) return
       await handleEvent(input.event, core)
+    },
+    "command.execute.before": async (input: CommandExecuteBeforeInput) => {
+      if (!resolvedConfig.enabled) return
+      await handleCommandExecuteBefore(input, core, {
+        defaultMaxIterations: resolvedConfig.defaultMaxIterations,
+      })
     },
     "tool.execute.before": async (input: ToolExecuteBeforeInput, output: ToolExecuteBeforeOutput) => {
       if (!resolvedConfig.enabled) return
