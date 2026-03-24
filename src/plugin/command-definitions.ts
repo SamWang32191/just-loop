@@ -11,7 +11,7 @@ const RALPH_LOOP_TEMPLATE = `You are starting a Ralph Loop - a self-referential 
 ## How Ralph Loop Works
 
 1. You will work on the task continuously
-2. When you believe the task is FULLY complete, output: \`<promise>{{COMPLETION_PROMISE}}</promise>\`
+2. When you believe the task is FULLY complete, output the configured completion promise exactly as provided
 3. If you don't output the promise, the loop will automatically inject another prompt to continue
 4. Maximum iterations: plugin config fallback (${DEFAULT_MAX_ITERATIONS_FALLBACK})
 
@@ -32,7 +32,7 @@ const RALPH_LOOP_TEMPLATE = `You are starting a Ralph Loop - a self-referential 
 ## Your Task
 
 Parse the arguments below and begin working on the task. The format is:
-\`"task description" [--completion-promise=TEXT] [--max-iterations=N] [--strategy=continue]\`
+\`task description [--completion-promise=TEXT] [--max-iterations=N] [--strategy=continue]\`
 
 Aliases: \`--promise "TEXT"\`, \`--max N\`
 Reset strategy is not supported in v1.
