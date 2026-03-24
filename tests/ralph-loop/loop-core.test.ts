@@ -527,6 +527,59 @@ describe("loop-core", () => {
     expect(state?.iteration).toBe(2)
   })
 
+  it("keeps a newer loop state when an unrelated idle orphan check resolves after restart", async () => {
+    const root = await createRoot()
+    const prompt = mock(async () => undefined)
+    let resolveFirstSessionExists!: (value: boolean) => void
+    const firstSessionExists = new Promise<boolean>((resolve) => {
+      resolveFirstSessionExists = resolve
+    })
+    let sessionExistsCalls = 0
+    const sessionExists = mock(async () => {
+      sessionExistsCalls += 1
+      if (sessionExistsCalls === 1) {
+        return await firstSessionExists
+      }
+
+      return false
+    })
+    const core = createLoopCore({
+      rootDir: root,
+      adapter: {
+        getMessageCount: mock(async () => 0),
+        getMessages: mock(async () => [{ role: "assistant", text: "still working" }]),
+        prompt,
+        sessionExists,
+        abortSession: mock(async () => undefined),
+      },
+    })
+
+    await writeState(root, {
+      active: true,
+      session_id: "s1",
+      prompt: "build plugin",
+      iteration: 2,
+      max_iterations: 3,
+      completion_promise: DEFAULT_COMPLETION_PROMISE,
+      message_count_at_start: 0,
+      started_at: "2026-03-23T00:00:00.000Z",
+    })
+
+    const idle = core.handleEvent({ type: "session.idle", sessionID: "s2" })
+    await Promise.resolve()
+
+    await core.startLoop("s1", "rebuild plugin", { maxIterations: 4 })
+    resolveFirstSessionExists(false)
+    await idle
+
+    const state = await readState(root)
+    expect(sessionExists).toHaveBeenCalledTimes(2)
+    expect(prompt).not.toHaveBeenCalled()
+    expect(state?.session_id).toBe("s1")
+    expect(state?.prompt).toBe("rebuild plugin")
+    expect(state?.iteration).toBe(0)
+  })
+
   it("does not repeat continuation for the same message set across consecutive idles", async () => {
     const root = await createRoot()
     const getMessages = mock(async () => [

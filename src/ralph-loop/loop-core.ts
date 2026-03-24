@@ -89,9 +89,19 @@ export function createLoopCore(deps: CreateLoopCoreDeps) {
         const state = await readState(deps.rootDir)
         if (!state || !state.active) return
         if (state.session_id !== event.sessionID) {
-          const stillExists = await deps.adapter.sessionExists(state.session_id)
+          const observedSessionID = state.session_id
+          const observedToken = getToken(state)
+          const stillExists = await deps.adapter.sessionExists(observedSessionID)
           if (!stillExists) {
-            await clearState(deps.rootDir)
+            const currentState = await readState(deps.rootDir)
+            if (
+              currentState &&
+              currentState.active &&
+              currentState.session_id === observedSessionID &&
+              getToken(currentState) === observedToken
+            ) {
+              await clearState(deps.rootDir)
+            }
           }
 
           return
