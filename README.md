@@ -30,14 +30,41 @@ Bun is only a maintenance and release prerequisite. It is not a runtime dependen
 
 ## Release
 
-Prerequisites: Node 20+, Bun, and a valid npm login/token.
+Primary release flow uses GitHub Actions and only allows manual dispatch from `main`.
 
-1. Run `npm login`.
-2. Run `npm whoami`.
-3. Confirm `@w32191` scope access with `npm access list packages @w32191` (or equivalent access check).
-4. Run `npm view @w32191/just-loop version`.
-   - For the first publish, a 404 is expected until the package exists.
-   - The real unblock condition is: `npm whoami` succeeds and scope access checks pass.
-5. Bump the package version.
-6. Run `npm run verify:publish`.
-7. Publish with `npm publish --access public`.
+### GitHub Actions release
+
+Prerequisites:
+
+- GitHub Actions release workflow is configured in this repository
+- npm Trusted Publisher is configured for this package
+
+Steps:
+
+1. Open the `Release` workflow in GitHub Actions from the `main` branch.
+2. Choose either:
+   - `auto-bump = patch|minor`, or
+   - `auto-bump = no` and provide `version = X.Y.Z`
+3. Optionally add one-line `notes`.
+4. Optionally set `dry_run = true` to validate without pushing, tagging, or publishing.
+
+The workflow will:
+
+1. Lock to the dispatched `main` commit SHA.
+2. Install dependencies with `bun install --frozen-lockfile`.
+3. Update `package.json` to the release version.
+4. Run `npm run verify:publish`.
+5. Generate a release notes artifact.
+6. On non-dry-run:
+   - commit the version bump to `main`
+   - create and push tag `vX.Y.Z`
+   - publish to npm with `npm publish --provenance --access public`
+   - create the GitHub Release
+
+### Local fallback
+
+If GitHub Actions is unavailable, the equivalent manual flow is:
+
+1. Bump the package version.
+2. Run `npm run verify:publish`.
+3. Publish with `npm publish --access public`.
