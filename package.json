@@ -1,18 +1,31 @@
 {
-  "name": "just-loop",
-  "private": true,
+  "name": "@w32191/just-loop",
   "type": "module",
+  "version": "0.1.0",
+  "description": "OpenCode plugin package for just-loop.",
+  "license": "MIT",
   "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",
       "import": "./dist/src/index.js"
     }
   },
+  "files": ["dist/", "README.md", "LICENSE"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",
-    "test": "bun run build && bun test"
+    "test": "bun run build && bun test",
+    "smoke:pack": "node scripts/smoke-pack.mjs",
+    "verify:publish": "npm run build && npm run test && node scripts/verify-publish.mjs",
+    "prepublishOnly": "npm run verify:publish"
   },
   "dependencies": {
     "@opencode-ai/plugin": "1.3.0"
