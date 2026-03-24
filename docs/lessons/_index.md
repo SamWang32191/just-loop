@@ -4,6 +4,7 @@
 
 | Card | Scope | Tags | Date |
 |---|---|---|---|
+| `orphaned-loop-cleanup-must-revalidate-state` | feature | ralph-loop, concurrency, state, recovery, idle-event | 2026-03-24 |
 | `npm-publish-needs-real-tarball-smoke` | project | npm, publish, tarball, typescript, smoke-test | 2026-03-24 |
 | `opencode-formal-command-needs-config-and-tool-hook` | project | opencode, commands, plugin, hooks, ralph-loop | 2026-03-24 |
 | `git-worktree-root-rename-order` | project | git, worktree, rename, path | 2026-03-23 |
