@@ -55,6 +55,15 @@ describe("parseRalphLoopCommand", () => {
     })
   })
 
+  it("treats trailing canonical flags as prompt text", () => {
+    expect(parseRalphLoopCommand("/ralph-loop build --max-iterations=7")).toEqual({
+      kind: "start",
+      prompt: "build --max-iterations=7",
+      maxIterations: undefined,
+      completionPromise: DEFAULT_COMPLETION_PROMISE,
+    })
+  })
+
   it("rejects invalid max values", () => {
     expect(() => parseRalphLoopCommand("/ralph-loop --max -1 task")).toThrow()
     expect(() => parseRalphLoopCommand("/ralph-loop --max foo task")).toThrow()

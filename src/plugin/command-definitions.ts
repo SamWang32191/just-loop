@@ -25,14 +25,14 @@ const RALPH_LOOP_TEMPLATE = `You are starting a Ralph Loop - a self-referential 
 
 ## Exit Conditions
 
-1. **Completion**: Output your completion promise tag when fully complete
+1. **Completion**: Output your completion promise when fully complete
 2. **Max Iterations**: Loop stops automatically at limit
 3. **Cancel**: User runs \`/cancel-ralph\` command
 
 ## Your Task
 
 Parse the arguments below and begin working on the task. The format is:
-\`task description [--completion-promise=TEXT] [--max-iterations=N] [--strategy=continue]\`
+\`[--completion-promise=TEXT] [--max-iterations=N] [--strategy=continue] task description\`
 
 Aliases: \`--promise "TEXT"\`, \`--max N\`
 Reset strategy is not supported in v1.
