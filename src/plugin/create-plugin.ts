@@ -6,6 +6,7 @@ import { handleCommandExecuteBefore } from "./command-execute-before-handler.js"
 import { handleConfig } from "./config-handler.js"
 import { handleEvent } from "./event-handler.js"
 import { resolvePluginConfig } from "./plugin-config.js"
+import { handleTuiCommandExecute, type TuiCommandExecuteInput } from "./tui-command-execute-handler.js"
 import { handleToolExecuteBefore } from "./tool-execute-before-handler.js"
 import type { Plugin } from "@opencode-ai/plugin"
 
@@ -59,6 +60,7 @@ export type PluginHooks = {
   event: (input: EventInput) => Promise<void>
   config: (input: Record<string, unknown>) => Promise<void>
   "command.execute.before": (input: CommandExecuteBeforeInput, output: CommandExecuteBeforeOutput) => Promise<void>
+  "tui.command.execute": (input: TuiCommandExecuteInput) => Promise<void>
   "tool.execute.before": (input: ToolExecuteBeforeInput, output: ToolExecuteBeforeOutput) => Promise<void>
 }
 
@@ -126,6 +128,10 @@ export async function createPlugin(
       await handleCommandExecuteBefore(input, core, {
         defaultMaxIterations: resolvedConfig.defaultMaxIterations,
       })
+    },
+    "tui.command.execute": async (input: TuiCommandExecuteInput) => {
+      if (!resolvedConfig.enabled) return
+      await handleTuiCommandExecute(input, core)
     },
     "tool.execute.before": async (input: ToolExecuteBeforeInput, output: ToolExecuteBeforeOutput) => {
       if (!resolvedConfig.enabled) return

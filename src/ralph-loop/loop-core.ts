@@ -10,6 +10,7 @@ export type LoopEvent =
   | { type: "session.idle"; sessionID: string }
   | { type: "session.deleted"; sessionID: string }
   | { type: "session.error"; sessionID: string }
+  | { type: "session.interrupt" }
 
 export type CreateLoopCoreDeps = {
   rootDir: string
@@ -24,6 +25,7 @@ export type StartLoopOptions = {
 
 export function createLoopCore(deps: CreateLoopCoreDeps) {
   const inFlight = new Map<string, string>()
+  let stateMutationQueue: Promise<void> = Promise.resolve()
   const getConfig = () =>
     deps.getConfig?.() ?? {
       enabled: true,
@@ -34,55 +36,91 @@ export function createLoopCore(deps: CreateLoopCoreDeps) {
   const getToken = (state: { incarnation_token?: string; started_at: string }) =>
     state.incarnation_token ?? state.started_at
 
+  const runStateMutation = async <T>(mutation: () => Promise<T>): Promise<T> => {
+    const run = stateMutationQueue.then(mutation, mutation)
+    stateMutationQueue = run.then(() => undefined, () => undefined)
+    return run
+  }
+
   return {
     async startLoop(sessionID: string, prompt: string, options: StartLoopOptions = {}) {
-      const config = getConfig()
-      const existing = await readState(deps.rootDir)
+      return await runStateMutation(async () => {
+        const config = getConfig()
+        const existing = await readState(deps.rootDir)
 
-      if (existing?.active) {
-        const stillExists = await deps.adapter.sessionExists(existing.session_id)
-        if (stillExists) {
-          throw new Error("an active Ralph Loop already exists; use /cancel-ralph first")
-        }
+        if (existing?.active) {
+          const stillExists = await deps.adapter.sessionExists(existing.session_id)
+          if (stillExists) {
+            throw new Error("an active Ralph Loop already exists; use /cancel-ralph first")
+          }
 
-        await clearState(deps.rootDir)
-      } else if (existing) {
-        await clearState(deps.rootDir)
-      }
-
-      const messageCountAtStart = await deps.adapter.getMessageCount(sessionID)
-      const incarnationToken = randomUUID()
-      const state: RalphLoopState = {
-        active: true,
-        session_id: sessionID,
-        prompt,
-        iteration: 0,
-        max_iterations: options.maxIterations ?? config.defaultMaxIterations,
-        completion_promise: options.completionPromise ?? DEFAULT_COMPLETION_PROMISE,
-        message_count_at_start: messageCountAtStart,
-        incarnation_token: incarnationToken,
-        started_at: new Date().toISOString(),
-      }
-
-      await writeState(deps.rootDir, state)
-    },
-
-    async cancelLoop(sessionID: string) {
-      const state = await readState(deps.rootDir)
-      if (!state || !state.active || state.session_id !== sessionID) return
-
-      await deps.adapter.abortSession(sessionID)
-      await clearState(deps.rootDir)
-    },
-
-    async handleEvent(event: LoopEvent) {
-      if (event.type === "session.deleted" || event.type === "session.error") {
-        const state = await readState(deps.rootDir)
-        if (state && state.active && state.session_id === event.sessionID) {
+          await clearState(deps.rootDir)
+        } else if (existing) {
           await clearState(deps.rootDir)
         }
 
-        return
+        const messageCountAtStart = await deps.adapter.getMessageCount(sessionID)
+        const incarnationToken = randomUUID()
+        const state: RalphLoopState = {
+          active: true,
+          session_id: sessionID,
+          prompt,
+          iteration: 0,
+          max_iterations: options.maxIterations ?? config.defaultMaxIterations,
+          completion_promise: options.completionPromise ?? DEFAULT_COMPLETION_PROMISE,
+          message_count_at_start: messageCountAtStart,
+          incarnation_token: incarnationToken,
+          started_at: new Date().toISOString(),
+        }
+
+        await writeState(deps.rootDir, state)
+      })
+    },
+
+    async cancelLoop(sessionID: string) {
+      return await runStateMutation(async () => {
+        const state = await readState(deps.rootDir)
+        if (!state || !state.active || state.session_id !== sessionID) return
+
+        await deps.adapter.abortSession(sessionID)
+        await clearState(deps.rootDir)
+      })
+    },
+
+    async handleEvent(event: LoopEvent) {
+      if (event.type === "session.interrupt") {
+        return await runStateMutation(async () => {
+          const state = await readState(deps.rootDir)
+          if (!state || !state.active) return
+
+          const observedSessionID = state.session_id
+          const observedToken = getToken(state)
+          // active-loop-scoped only: the host interrupt hook does not provide sessionID,
+          // so we re-read before write and only stamp the currently active incarnation.
+          const currentState = await readState(deps.rootDir)
+          if (
+            !currentState ||
+            !currentState.active ||
+            currentState.session_id !== observedSessionID ||
+            getToken(currentState) !== observedToken
+          ) {
+            return
+          }
+
+          await writeState(deps.rootDir, {
+            ...currentState,
+            skip_next_continuation: true,
+          })
+        })
+      }
+
+      if (event.type === "session.deleted" || event.type === "session.error") {
+        return await runStateMutation(async () => {
+          const state = await readState(deps.rootDir)
+          if (state && state.active && state.session_id === event.sessionID) {
+            await clearState(deps.rootDir)
+          }
+        })
       }
 
       try {
@@ -93,15 +131,17 @@ export function createLoopCore(deps: CreateLoopCoreDeps) {
           const observedToken = getToken(state)
           const stillExists = await deps.adapter.sessionExists(observedSessionID)
           if (!stillExists) {
-            const currentState = await readState(deps.rootDir)
-            if (
-              currentState &&
-              currentState.active &&
-              currentState.session_id === observedSessionID &&
-              getToken(currentState) === observedToken
-            ) {
-              await clearState(deps.rootDir)
-            }
+            await runStateMutation(async () => {
+              const currentState = await readState(deps.rootDir)
+              if (
+                currentState &&
+                currentState.active &&
+                currentState.session_id === observedSessionID &&
+                getToken(currentState) === observedToken
+              ) {
+                await clearState(deps.rootDir)
+              }
+            })
           }
 
           return
@@ -130,19 +170,76 @@ export function createLoopCore(deps: CreateLoopCoreDeps) {
         ) {
           return
         }
-        const currentLiveState = liveState
-
-        if (detectCompletion(messages, currentLiveState.completion_promise, currentLiveState.message_count_at_start)) {
-          await clearState(deps.rootDir)
+        const continuationState = await readState(deps.rootDir)
+        if (
+          !continuationState ||
+          !continuationState.active ||
+          continuationState.session_id !== event.sessionID ||
+          getToken(continuationState) !== incarnationToken
+        ) {
           return
         }
 
-        const nextIteration = currentLiveState.iteration + 1
         if (
-          typeof currentLiveState.max_iterations === "number" &&
-          nextIteration > currentLiveState.max_iterations
+          detectCompletion(messages, continuationState.completion_promise, continuationState.message_count_at_start)
         ) {
-          await clearState(deps.rootDir)
+          await runStateMutation(async () => {
+            const currentState = await readState(deps.rootDir)
+            if (
+              currentState &&
+              currentState.active &&
+              currentState.session_id === event.sessionID &&
+              getToken(currentState) === incarnationToken &&
+              detectCompletion(messages, currentState.completion_promise, currentState.message_count_at_start)
+            ) {
+              await clearState(deps.rootDir)
+            }
+          })
+          return
+        }
+
+        const nextIteration = continuationState.iteration + 1
+        if (
+          typeof continuationState.max_iterations === "number" &&
+          nextIteration > continuationState.max_iterations
+        ) {
+          await runStateMutation(async () => {
+            const currentState = await readState(deps.rootDir)
+            if (
+              currentState &&
+              currentState.active &&
+              currentState.session_id === event.sessionID &&
+              getToken(currentState) === incarnationToken &&
+              typeof currentState.max_iterations === "number" &&
+              currentState.iteration + 1 > currentState.max_iterations
+            ) {
+              await clearState(deps.rootDir)
+            }
+          })
+          return
+        }
+
+        if (continuationState.skip_next_continuation) {
+          // Consume the one-shot suppress flag for the currently active loop only.
+          await runStateMutation(async () => {
+            const currentState = await readState(deps.rootDir)
+            if (
+              !currentState ||
+              !currentState.active ||
+              currentState.session_id !== event.sessionID ||
+              getToken(currentState) !== incarnationToken ||
+              !currentState.skip_next_continuation
+            ) {
+              return
+            }
+
+            const nextState: RalphLoopState = {
+              ...currentState,
+              last_message_count_processed: batchMessageCount,
+            }
+            delete nextState.skip_next_continuation
+            await writeState(deps.rootDir, nextState)
+          })
           return
         }
 
@@ -150,29 +247,30 @@ export function createLoopCore(deps: CreateLoopCoreDeps) {
           event.sessionID,
           buildContinuationPrompt({
             iteration: nextIteration,
-            prompt: currentLiveState.prompt,
-            completionPromise: currentLiveState.completion_promise,
-            maxIterations: currentLiveState.max_iterations,
+            prompt: continuationState.prompt,
+            completionPromise: continuationState.completion_promise,
+            maxIterations: continuationState.max_iterations,
           }),
         )
 
-        const currentState = await readState(deps.rootDir)
-        if (
-          !currentState ||
-          !currentState.active ||
-          currentState.session_id !== event.sessionID ||
-          getToken(currentState) !== incarnationToken
-        ) {
-          return
-        }
-        const persistedState = currentState
+        await runStateMutation(async () => {
+          const currentState = await readState(deps.rootDir)
+          if (
+            !currentState ||
+            !currentState.active ||
+            currentState.session_id !== event.sessionID ||
+            getToken(currentState) !== incarnationToken
+          ) {
+            return
+          }
 
-        const nextState: RalphLoopState = {
-          ...persistedState,
-          iteration: nextIteration,
-          last_message_count_processed: batchMessageCount,
-        }
-        await writeState(deps.rootDir, nextState)
+          const nextState: RalphLoopState = {
+            ...currentState,
+            iteration: nextIteration,
+            last_message_count_processed: batchMessageCount,
+          }
+          await writeState(deps.rootDir, nextState)
+        })
 
       } finally {
         const currentToken = inFlight.get(event.sessionID)

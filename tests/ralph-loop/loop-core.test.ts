@@ -236,6 +236,240 @@ describe("loop-core", () => {
     expect(prompt).not.toHaveBeenCalled()
   })
 
+  it("marks the active loop to skip the next continuation when interrupted", async () => {
+    const root = await createRoot()
+    const core = createLoopCore({
+      rootDir: root,
+      adapter: {
+        getMessageCount: mock(async () => 0),
+        getMessages: mock(async () => [{ role: "assistant", text: "still working" }]),
+        prompt: mock(async () => undefined),
+        sessionExists: mock(async () => true),
+        abortSession: mock(async () => undefined),
+      },
+    })
+
+    await core.startLoop("s1", "build plugin", { maxIterations: 3 })
+    await core.handleEvent({ type: "session.interrupt" })
+
+    expect((await readState(root))?.skip_next_continuation).toBe(true)
+  })
+
+  it("keeps the active-loop-scoped interrupt flag when idle prompt is pending", async () => {
+    const root = await createRoot()
+    let resolvePrompt!: () => void
+    let signalPromptStarted!: () => void
+    const promptStarted = new Promise<void>((resolve) => {
+      signalPromptStarted = resolve
+    })
+    const prompt = mock(() => {
+      signalPromptStarted()
+      return new Promise<void>((resolve) => {
+        resolvePrompt = resolve
+      })
+    })
+    const core = createLoopCore({
+      rootDir: root,
+      adapter: {
+        getMessageCount: mock(async () => 0),
+        getMessages: mock(async () => [{ role: "assistant", text: "still working" }]),
+        prompt,
+        sessionExists: mock(async () => true),
+        abortSession: mock(async () => undefined),
+      },
+    })
+
+    await core.startLoop("s1", "build plugin", { maxIterations: 3 })
+
+    const idle = core.handleEvent({ type: "session.idle", sessionID: "s1" })
+    await promptStarted
+    await core.handleEvent({ type: "session.interrupt" })
+    resolvePrompt()
+    await idle
+
+    const state = await readState(root)
+    expect(prompt).toHaveBeenCalledTimes(1)
+    expect(state?.active).toBe(true)
+    expect(state?.iteration).toBe(1)
+    expect(state?.skip_next_continuation).toBe(true)
+  })
+
+  it("keeps interrupt behavior active-loop-scoped across cancel/restart while an old idle finishes", async () => {
+    const root = await createRoot()
+    let resolvePrompt!: () => void
+    let signalPromptStarted!: () => void
+    const promptStarted = new Promise<void>((resolve) => {
+      signalPromptStarted = resolve
+    })
+    const prompt = mock(() => {
+      signalPromptStarted()
+      return new Promise<void>((resolve) => {
+        resolvePrompt = resolve
+      })
+    })
+    const core = createLoopCore({
+      rootDir: root,
+      adapter: {
+        getMessageCount: mock(async () => 0),
+        getMessages: mock(async () => [{ role: "assistant", text: "still working" }]),
+        prompt,
+        sessionExists: mock(async () => true),
+        abortSession: mock(async () => undefined),
+      },
+    })
+
+    await core.startLoop("s1", "build plugin", { maxIterations: 3 })
+
+    const idle = core.handleEvent({ type: "session.idle", sessionID: "s1" })
+    await promptStarted
+    await core.handleEvent({ type: "session.interrupt" })
+    await core.cancelLoop("s1")
+    await core.startLoop("s1", "rebuild plugin", { maxIterations: 4 })
+    resolvePrompt()
+    await idle
+
+    const state = await readState(root)
+    expect(prompt).toHaveBeenCalledTimes(1)
+    expect(state?.session_id).toBe("s1")
+    expect(state?.prompt).toBe("rebuild plugin")
+    expect(state?.iteration).toBe(0)
+    expect(state?.skip_next_continuation).toBeUndefined()
+  })
+
+  it("serializes interrupt, cancel, and restart so a stale interrupt cannot overwrite the new active loop state", async () => {
+    const root = await createRoot()
+    let resolvePrompt!: () => void
+    let signalPromptStarted!: () => void
+    const promptStarted = new Promise<void>((resolve) => {
+      signalPromptStarted = resolve
+    })
+    const prompt = mock(() => {
+      signalPromptStarted()
+      return new Promise<void>((resolve) => {
+        resolvePrompt = resolve
+      })
+    })
+    const core = createLoopCore({
+      rootDir: root,
+      adapter: {
+        getMessageCount: mock(async () => 0),
+        getMessages: mock(async () => [{ role: "assistant", text: "still working" }]),
+        prompt,
+        sessionExists: mock(async () => true),
+        abortSession: mock(async () => undefined),
+      },
+    })
+
+    await core.startLoop("s1", "build plugin", { maxIterations: 3 })
+
+    const idle = core.handleEvent({ type: "session.idle", sessionID: "s1" })
+    await promptStarted
+
+    const interrupt = core.handleEvent({ type: "session.interrupt" })
+    const cancel = core.cancelLoop("s1")
+    const restart = core.startLoop("s1", "rebuild plugin", { maxIterations: 4 })
+
+    resolvePrompt()
+    await Promise.all([idle, interrupt, cancel, restart])
+
+    const state = await readState(root)
+    expect(prompt).toHaveBeenCalledTimes(1)
+    expect(state?.session_id).toBe("s1")
+    expect(state?.prompt).toBe("rebuild plugin")
+    expect(state?.iteration).toBe(0)
+    expect(state?.skip_next_continuation).toBeUndefined()
+  })
+
+  it("keeps interrupt handling active-loop-scoped because session.interrupt lacks session identity", async () => {
+    const root = await createRoot()
+    const core = createLoopCore({
+      rootDir: root,
+      adapter: {
+        getMessageCount: mock(async () => 0),
+        getMessages: mock(async () => [{ role: "assistant", text: "still working" }]),
+        prompt: mock(async () => undefined),
+        sessionExists: mock(async () => true),
+        abortSession: mock(async () => undefined),
+      },
+    })
+
+    await core.startLoop("s1", "build plugin", { maxIterations: 3 })
+    await core.handleEvent({ type: "session.interrupt" })
+
+    const state = await readState(root)
+    expect(state?.session_id).toBe("s1")
+    expect(state?.skip_next_continuation).toBe(true)
+  })
+
+  it("skips only the next continuation after interrupt and preserves active loop state", async () => {
+    const root = await createRoot()
+    let batch = 0
+    const getMessages = mock(async () => {
+      batch += 1
+      return batch === 1
+        ? [{ role: "assistant", text: "still working" }]
+        : [
+            { role: "assistant", text: "still working" },
+            { role: "assistant", text: "more work" },
+          ]
+    })
+    const getMessageCount = mock(async () => batch)
+    const prompt = mock(async () => undefined)
+    const core = createLoopCore({
+      rootDir: root,
+      adapter: {
+        getMessageCount,
+        getMessages,
+        prompt,
+        sessionExists: mock(async () => true),
+        abortSession: mock(async () => undefined),
+      },
+    })
+
+    await core.startLoop("s1", "build plugin", { maxIterations: 3 })
+    await core.handleEvent({ type: "session.interrupt" })
+
+    await core.handleEvent({ type: "session.idle", sessionID: "s1" })
+
+    let state = await readState(root)
+    expect(prompt).not.toHaveBeenCalled()
+    expect(state?.active).toBe(true)
+    expect(state?.iteration).toBe(0)
+    expect(state?.last_message_count_processed).toBe(1)
+    expect(state?.skip_next_continuation).toBeUndefined()
+
+    await core.handleEvent({ type: "session.idle", sessionID: "s1" })
+
+    state = await readState(root)
+    expect(prompt).toHaveBeenCalledTimes(1)
+    expect(state?.active).toBe(true)
+    expect(state?.iteration).toBe(1)
+    expect(state?.last_message_count_processed).toBe(2)
+  })
+
+  it("still clears state when completion is found after interrupt", async () => {
+    const root = await createRoot()
+    const core = createLoopCore({
+      rootDir: root,
+      adapter: {
+        getMessageCount: mock(async () => 0),
+        getMessages: mock(async () => [
+          { role: "assistant", text: "still working" },
+          { role: "assistant", text: DEFAULT_COMPLETION_PROMISE },
+        ]),
+        prompt: mock(async () => undefined),
+        sessionExists: mock(async () => true),
+        abortSession: mock(async () => undefined),
+      },
+    })
+
+    await core.startLoop("s1", "build plugin", { maxIterations: 3 })
+    await core.handleEvent({ type: "session.interrupt" })
+    await core.handleEvent({ type: "session.idle", sessionID: "s1" })
+
+    expect(await readState(root)).toBeNull()
+  })
+
   it("stops when max iterations are reached", async () => {
     const root = await createRoot()
     const getMessages = mock(async () => [{ role: "assistant", text: "still working" }])

@@ -2,6 +2,7 @@ import { describe, expect, it, mock } from "bun:test"
 import { createPlugin } from "../../src/plugin/create-plugin"
 import { handleChatMessage } from "../../src/plugin/chat-message-handler"
 import { handleEvent } from "../../src/plugin/event-handler"
+import { handleTuiCommandExecute } from "../../src/plugin/tui-command-execute-handler"
 import {
   DEFAULT_COMPLETION_PROMISE,
   DEFAULT_MAX_ITERATIONS_FALLBACK,
@@ -153,6 +154,41 @@ describe("plugin handlers", () => {
       [{ type: "session.error", sessionID: "s3" }],
     ])
   })
+
+  it("routes active-loop-scoped session.interrupt from tui.command.execute properties without needing sessionID", async () => {
+    const handleLoopEvent = mock(async () => undefined)
+
+    await handleTuiCommandExecute({ properties: { command: "session.interrupt" } } as any, {
+      handleEvent: handleLoopEvent,
+    } as any)
+
+    expect(handleLoopEvent).toHaveBeenCalledTimes(1)
+    expect(handleLoopEvent).toHaveBeenCalledWith({ type: "session.interrupt" })
+  })
+
+  it("ignores other tui.command.execute commands", async () => {
+    const handleLoopEvent = mock(async () => undefined)
+
+    await handleTuiCommandExecute({ properties: { command: "session.resume" } } as any, {
+      handleEvent: handleLoopEvent,
+    } as any)
+
+    expect(handleLoopEvent).not.toHaveBeenCalled()
+  })
+
+  it("safely ignores malformed tui.command.execute payloads", async () => {
+    const handleLoopEvent = mock(async () => undefined)
+
+    await handleTuiCommandExecute({ properties: null } as any, {
+      handleEvent: handleLoopEvent,
+    } as any)
+
+    await handleTuiCommandExecute(null as any, {
+      handleEvent: handleLoopEvent,
+    } as any)
+
+    expect(handleLoopEvent).not.toHaveBeenCalled()
+  })
 })
 
 describe("createPlugin", () => {
@@ -211,6 +247,42 @@ describe("createPlugin", () => {
       completionPromise: DEFAULT_COMPLETION_PROMISE,
     })
     expect(core.handleEvent).toHaveBeenCalledWith({ type: "session.idle", sessionID: "s1" })
+  })
+
+  it("wires tui.command.execute to active-loop-scoped session.interrupt core events", async () => {
+    const core = {
+      startLoop: mock(async () => undefined),
+      cancelLoop: mock(async () => undefined),
+      handleEvent: mock(async () => undefined),
+    }
+
+    const plugin = await createPlugin(
+      {
+        directory: "/workspace",
+        client: {
+          session: {
+            messages: mock(async () => []),
+            promptAsync: mock(async () => undefined),
+            prompt: mock(async () => undefined),
+            abort: mock(async () => undefined),
+          },
+        },
+      } as any,
+      {
+        createOpenCodeHostAdapter: mock(() => ({
+          getMessageCount: mock(async () => 0),
+          getMessages: mock(async () => []),
+          prompt: mock(async () => undefined),
+          abortSession: mock(async () => undefined),
+          sessionExists: mock(async () => true),
+        }) as any),
+        createLoopCore: mock(() => core as any),
+      },
+    )
+
+    await plugin["tui.command.execute"]?.({ properties: { command: "session.interrupt" } } as any)
+
+    expect(core.handleEvent).toHaveBeenCalledWith({ type: "session.interrupt" })
   })
 
   it("does not start the loop from raw slash text in chat.message", async () => {
@@ -350,6 +422,7 @@ describe("createPlugin", () => {
         },
       } as any,
     )
+    await plugin["tui.command.execute"]?.({ properties: { command: "session.interrupt" } } as any)
     await plugin.event({ event: { type: "session.idle", properties: { sessionID: "session-disabled" } } } as any)
 
     expect(config.command).toEqual({})
