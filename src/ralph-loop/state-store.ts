@@ -21,6 +21,7 @@ function isRalphLoopState(value: unknown): value is RalphLoopState {
     typeof record.completion_promise === "string" &&
     typeof record.message_count_at_start === "number" &&
     (record.last_message_count_processed === undefined || typeof record.last_message_count_processed === "number") &&
+    (record.skip_next_continuation === undefined || typeof record.skip_next_continuation === "boolean") &&
     (record.incarnation_token === undefined || typeof record.incarnation_token === "string") &&
     typeof record.started_at === "string"
   )

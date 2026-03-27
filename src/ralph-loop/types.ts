@@ -7,6 +7,7 @@ export type RalphLoopState = {
   completion_promise: string
   message_count_at_start: number
   last_message_count_processed?: number
+  skip_next_continuation?: boolean
   incarnation_token?: string
   started_at: string
 }
