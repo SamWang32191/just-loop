@@ -9,6 +9,12 @@ export interface HostAdapter {
   prompt(sessionID: string, text: string): Promise<void>
   abortSession(sessionID: string): Promise<void>
   sessionExists(sessionID: string): Promise<boolean>
+  showToast?(toast: {
+    title: string
+    message: string
+    variant?: "info" | "warning" | "error" | "success"
+    duration?: number
+  }): Promise<void>
 }
 
 export type OpenCodeHostAdapterContext = {
@@ -23,6 +29,11 @@ export type OpenCodeHostAdapterContext = {
       }) => Promise<unknown>
       prompt: (input: { sessionID: string; directory: string; parts: Array<{ type: "text"; text: string }> }) => Promise<unknown>
       abort: (input: { sessionID: string; directory?: string }) => Promise<unknown>
+    }
+    tui?: {
+      showToast?: (input: {
+        body: { title: string; message: string; variant?: "info" | "warning" | "error" | "success"; duration?: number }
+      }) => Promise<unknown>
     }
   }
 }

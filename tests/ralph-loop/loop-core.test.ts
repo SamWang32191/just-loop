@@ -13,6 +13,17 @@ import type { RalphLoopState } from "../../src/ralph-loop/types"
 
 const createdRoots: string[] = []
 
+function createDeferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+
+  return { promise, resolve, reject }
+}
+
 async function createRoot() {
   const root = await mkdtemp(join(tmpdir(), "ralph-loop-core-"))
   createdRoots.push(root)
@@ -120,6 +131,38 @@ describe("createOpenCodeHostAdapter", () => {
     await expect(failingAdapter.getMessages("boom")).rejects.toThrow("host exploded")
     await notFoundAdapter.prompt("s1", "continue")
     expect(prompt).toHaveBeenCalledTimes(1)
+  })
+
+  it("forwards tui toast notifications when available", async () => {
+    const messages = mock(async () => [])
+    const prompt = mock(async () => undefined)
+    const abort = mock(async () => undefined)
+    const showToast = mock(async () => undefined)
+
+    const adapter = createOpenCodeHostAdapter({
+      directory: "/workspace",
+      client: {
+        session: { messages, prompt, abort },
+        tui: { showToast },
+      },
+    })
+
+    await adapter.showToast?.({
+      title: "Ralph Loop",
+      message: "Injecting in 5s. Interrupt to cancel.",
+      variant: "warning",
+      duration: 1000,
+    })
+
+    expect(showToast).toHaveBeenCalledTimes(1)
+    expect(showToast).toHaveBeenCalledWith({
+      body: {
+        title: "Ralph Loop",
+        message: "Injecting in 5s. Interrupt to cancel.",
+        variant: "warning",
+        duration: 1000,
+      },
+    })
   })
 })
 
@@ -1123,6 +1166,308 @@ describe("loop-core", () => {
     await Promise.all([first, second])
 
     expect(prompt).toHaveBeenCalledTimes(1)
+  })
+
+  it("waits for a 5-second countdown, shows 5→1 toasts, and injects only after the countdown", async () => {
+    const root = await createRoot()
+    const waits = Array.from({ length: 5 }, () => createDeferred<void>())
+    let waitIndex = 0
+    const wait = mock(async (ms: number) => {
+      expect(ms).toBe(1000)
+      const step = waits[waitIndex]
+      waitIndex += 1
+      if (!step) throw new Error("unexpected extra wait")
+      await step.promise
+    })
+    const showToast = mock(async () => undefined)
+    const prompt = mock(async () => undefined)
+    const core = createLoopCore({
+      rootDir: root,
+      adapter: {
+        getMessageCount: mock(async () => 0),
+        getMessages: mock(async () => [{ role: "assistant", text: "still working" }]),
+        prompt,
+        showToast,
+        sessionExists: mock(async () => true),
+        abortSession: mock(async () => undefined),
+      },
+      wait,
+    })
+
+    await core.startLoop("s1", "build plugin", { maxIterations: 3 })
+    const idle = core.handleEvent({ type: "session.idle", sessionID: "s1" })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(prompt).not.toHaveBeenCalled()
+    expect(showToast).toHaveBeenCalledWith({
+      title: "Ralph Loop",
+      message: "Injecting next continuation in 5s. Use interrupt to cancel once.",
+      variant: "warning",
+      duration: 1000,
+    })
+
+    for (let i = 0; i < waits.length - 1; i += 1) {
+      waits[i]?.resolve()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(prompt).not.toHaveBeenCalled()
+    }
+
+    waits[4]?.resolve()
+    await idle
+
+    expect(wait).toHaveBeenCalledTimes(5)
+    expect(showToast.mock.calls.map(([toast]) => toast.message)).toEqual([
+      "Injecting next continuation in 5s. Use interrupt to cancel once.",
+      "Injecting next continuation in 4s. Use interrupt to cancel once.",
+      "Injecting next continuation in 3s. Use interrupt to cancel once.",
+      "Injecting next continuation in 2s. Use interrupt to cancel once.",
+      "Injecting next continuation in 1s. Use interrupt to cancel once.",
+      "Injected Ralph Loop continuation.",
+    ])
+    expect(prompt).toHaveBeenCalledTimes(1)
+    expect((await readState(root))?.iteration).toBe(1)
+  })
+
+  it("cancels a pending countdown once, emits a cancellation toast, and allows a later continuation", async () => {
+    const root = await createRoot()
+    let batch = 0
+    const waits = Array.from({ length: 10 }, () => createDeferred<void>())
+    let waitIndex = 0
+    const wait = mock(async () => {
+      const step = waits[waitIndex]
+      waitIndex += 1
+      if (!step) throw new Error("unexpected extra wait")
+      await step.promise
+    })
+    const getMessages = mock(async () => {
+      batch += 1
+      return batch === 1
+        ? [{ role: "assistant", text: "still working" }]
+        : [
+            { role: "assistant", text: "still working" },
+            { role: "assistant", text: "more work" },
+          ]
+    })
+    const showToast = mock(async () => undefined)
+    const prompt = mock(async () => undefined)
+    const core = createLoopCore({
+      rootDir: root,
+      adapter: {
+        getMessageCount: mock(async () => batch),
+        getMessages,
+        prompt,
+        showToast,
+        sessionExists: mock(async () => true),
+        abortSession: mock(async () => undefined),
+      },
+      wait,
+    })
+
+    await core.startLoop("s1", "build plugin", { maxIterations: 3 })
+
+    const firstIdle = core.handleEvent({ type: "session.idle", sessionID: "s1" })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await core.handleEvent({ type: "session.interrupt" })
+
+    for (let i = 0; i < 5; i += 1) {
+      waits[i]?.resolve()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+    await firstIdle
+
+    let state = await readState(root)
+    expect(prompt).not.toHaveBeenCalled()
+    expect(state?.iteration).toBe(0)
+    expect(state?.skip_next_continuation).toBeUndefined()
+    expect(showToast.mock.calls.at(-1)?.[0]).toMatchObject({
+      message: "Cancelled the pending Ralph Loop continuation.",
+      variant: "info",
+    })
+
+    const secondIdle = core.handleEvent({ type: "session.idle", sessionID: "s1" })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    for (let i = 5; i < 10; i += 1) {
+      waits[i]?.resolve()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+    await secondIdle
+
+    state = await readState(root)
+    expect(prompt).toHaveBeenCalledTimes(1)
+    expect(state?.iteration).toBe(1)
+  })
+
+  it("does not inject when the loop is cleared during a pending countdown", async () => {
+    const root = await createRoot()
+    const waits = Array.from({ length: 5 }, () => createDeferred<void>())
+    let waitIndex = 0
+    const wait = mock(async () => {
+      const step = waits[waitIndex]
+      waitIndex += 1
+      if (!step) throw new Error("unexpected extra wait")
+      await step.promise
+    })
+    const prompt = mock(async () => undefined)
+    const core = createLoopCore({
+      rootDir: root,
+      adapter: {
+        getMessageCount: mock(async () => 0),
+        getMessages: mock(async () => [{ role: "assistant", text: "still working" }]),
+        prompt,
+        showToast: mock(async () => undefined),
+        sessionExists: mock(async () => true),
+        abortSession: mock(async () => undefined),
+      },
+      wait,
+    })
+
+    await core.startLoop("s1", "build plugin", { maxIterations: 3 })
+    const idle = core.handleEvent({ type: "session.idle", sessionID: "s1" })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await core.handleEvent({ type: "session.deleted", sessionID: "s1" })
+
+    for (const step of waits) {
+      step.resolve()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+    await idle
+
+    expect(prompt).not.toHaveBeenCalled()
+    expect(await readState(root)).toBeNull()
+  })
+
+  it("continues countdown injection even if toast notifications fail", async () => {
+    const root = await createRoot()
+    const waits = Array.from({ length: 5 }, () => createDeferred<void>())
+    let waitIndex = 0
+    const wait = mock(async () => {
+      const step = waits[waitIndex]
+      waitIndex += 1
+      if (!step) throw new Error("unexpected extra wait")
+      await step.promise
+    })
+    const prompt = mock(async () => undefined)
+    const showToast = mock(async () => {
+      throw new Error("toast failed")
+    })
+    const core = createLoopCore({
+      rootDir: root,
+      adapter: {
+        getMessageCount: mock(async () => 0),
+        getMessages: mock(async () => [{ role: "assistant", text: "still working" }]),
+        prompt,
+        showToast,
+        sessionExists: mock(async () => true),
+        abortSession: mock(async () => undefined),
+      },
+      wait,
+    })
+
+    await core.startLoop("s1", "build plugin", { maxIterations: 3 })
+    const idle = core.handleEvent({ type: "session.idle", sessionID: "s1" })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    for (const step of waits) {
+      step.resolve()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+
+    await idle
+
+    expect(showToast).toHaveBeenCalled()
+    expect(prompt).toHaveBeenCalledTimes(1)
+    expect((await readState(root))?.iteration).toBe(1)
+  })
+
+  it("does not inject if the loop is deleted as the final countdown step completes", async () => {
+    const root = await createRoot()
+    const waits = Array.from({ length: 5 }, () => createDeferred<void>())
+    let waitIndex = 0
+    let core!: ReturnType<typeof createLoopCore>
+    const wait = mock(async () => {
+      const step = waits[waitIndex]
+      waitIndex += 1
+      if (!step) throw new Error("unexpected extra wait")
+      await step.promise
+    })
+    const prompt = mock(async () => undefined)
+    core = createLoopCore({
+      rootDir: root,
+      adapter: {
+        getMessageCount: mock(async () => 0),
+        getMessages: mock(async () => [{ role: "assistant", text: "still working" }]),
+        prompt,
+        showToast: mock(async () => undefined),
+        sessionExists: mock(async () => true),
+        abortSession: mock(async () => undefined),
+      },
+      wait,
+    })
+
+    await core.startLoop("s1", "build plugin", { maxIterations: 3 })
+    const idle = core.handleEvent({ type: "session.idle", sessionID: "s1" })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    for (let i = 0; i < waits.length - 1; i += 1) {
+      waits[i]?.resolve()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+
+    queueMicrotask(() => {
+      void core.handleEvent({ type: "session.deleted", sessionID: "s1" })
+    })
+    waits[4]?.resolve()
+    await idle
+
+    expect(prompt).not.toHaveBeenCalled()
+    expect(await readState(root)).toBeNull()
+  })
+
+  it("does not inject if interrupt is queued as the final countdown step completes", async () => {
+    const root = await createRoot()
+    const waits = Array.from({ length: 5 }, () => createDeferred<void>())
+    let waitIndex = 0
+    let core!: ReturnType<typeof createLoopCore>
+    const wait = mock(async () => {
+      const step = waits[waitIndex]
+      waitIndex += 1
+      if (!step) throw new Error("unexpected extra wait")
+      await step.promise
+    })
+    const prompt = mock(async () => undefined)
+    core = createLoopCore({
+      rootDir: root,
+      adapter: {
+        getMessageCount: mock(async () => 0),
+        getMessages: mock(async () => [{ role: "assistant", text: "still working" }]),
+        prompt,
+        showToast: mock(async () => undefined),
+        sessionExists: mock(async () => true),
+        abortSession: mock(async () => undefined),
+      },
+      wait,
+    })
+
+    await core.startLoop("s1", "build plugin", { maxIterations: 3 })
+    const idle = core.handleEvent({ type: "session.idle", sessionID: "s1" })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    for (let i = 0; i < waits.length - 1; i += 1) {
+      waits[i]?.resolve()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+
+    queueMicrotask(() => {
+      void core.handleEvent({ type: "session.interrupt" })
+    })
+    waits[4]?.resolve()
+    await idle
+
+    const state = await readState(root)
+    expect(prompt).not.toHaveBeenCalled()
+    expect(state?.iteration).toBe(0)
+    expect(state?.skip_next_continuation).toBeUndefined()
   })
 
   it("persists a custom completion promise and includes it in the continuation prompt", async () => {

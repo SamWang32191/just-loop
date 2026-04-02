@@ -92,5 +92,8 @@ export function createOpenCodeHostAdapter(ctx: OpenCodeHostAdapterContext): Host
         throw error
       }
     },
+    async showToast(toast) {
+      await ctx.client.tui?.showToast?.({ body: toast })
+    },
   }
 }

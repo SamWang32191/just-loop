@@ -4,6 +4,7 @@
 
 | Card | Scope | Tags | Date |
 |---|---|---|---|
+| `opencode-plugin-sdk-has-tui-showtoast` | project | opencode, plugin, tui, toast, sdk | 2026-04-02 |
 | `orphaned-loop-cleanup-must-revalidate-state` | feature | ralph-loop, concurrency, state, recovery, idle-event | 2026-03-24 |
 | `npm-publish-needs-real-tarball-smoke` | project | npm, publish, tarball, typescript, smoke-test | 2026-03-24 |
 | `opencode-formal-command-needs-config-and-tool-hook` | project | opencode, commands, plugin, hooks, ralph-loop | 2026-03-24 |

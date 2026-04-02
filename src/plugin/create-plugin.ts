@@ -101,12 +101,20 @@ export async function createPlugin(
           ctx.client.session.prompt({ path: { id: sessionID }, body: { parts }, query: { directory } }),
         abort: async ({ sessionID }) => ctx.client.session.abort({ path: { id: sessionID } }),
       },
+      tui: ctx.client.tui?.showToast
+        ? { showToast: async ({ body }) => ctx.client.tui?.showToast?.({ body: body as any }) }
+        : undefined,
     },
   } satisfies OpenCodeHostAdapterContext)
   const core = createCore({
     rootDir: ctx.directory,
     adapter,
     getConfig: () => resolvedConfig,
+    wait: async (ms: number) => {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, ms)
+      })
+    },
   })
 
   return {

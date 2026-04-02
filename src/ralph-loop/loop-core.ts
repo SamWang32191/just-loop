@@ -1,4 +1,10 @@
-import { DEFAULT_COMPLETION_PROMISE, DEFAULT_MAX_ITERATIONS_FALLBACK, DEFAULT_STRATEGY } from "./constants.js"
+import {
+  CONTINUATION_COUNTDOWN_SECONDS,
+  CONTINUATION_COUNTDOWN_STEP_MS,
+  DEFAULT_COMPLETION_PROMISE,
+  DEFAULT_MAX_ITERATIONS_FALLBACK,
+  DEFAULT_STRATEGY,
+} from "./constants.js"
 import { buildContinuationPrompt } from "./continuation-prompt.js"
 import { detectCompletion } from "./completion-detector.js"
 import { clearState, readState, writeState } from "./state-store.js"
@@ -16,6 +22,7 @@ export type CreateLoopCoreDeps = {
   rootDir: string
   adapter: HostAdapter
   getConfig?: () => RalphLoopRuntimeConfig
+  wait?: (ms: number) => Promise<void>
 }
 
 export type StartLoopOptions = {
@@ -35,6 +42,18 @@ export function createLoopCore(deps: CreateLoopCoreDeps) {
 
   const getToken = (state: { incarnation_token?: string; started_at: string }) =>
     state.incarnation_token ?? state.started_at
+
+  const wait = deps.wait
+
+  function showToast(title: string, message: string, variant: "info" | "warning" | "success" = "info") {
+    void deps.adapter.showToast?.({ title, message, variant, duration: 1000 }).catch(() => {})
+  }
+
+  async function readCurrentState(sessionID: string, token: string) {
+    const state = await readState(deps.rootDir)
+    if (!state || !state.active || state.session_id !== sessionID || getToken(state) !== token) return null
+    return state
+  }
 
   const runStateMutation = async <T>(mutation: () => Promise<T>): Promise<T> => {
     const run = stateMutationQueue.then(mutation, mutation)
@@ -92,6 +111,7 @@ export function createLoopCore(deps: CreateLoopCoreDeps) {
         return await runStateMutation(async () => {
           const state = await readState(deps.rootDir)
           if (!state || !state.active) return
+          if (state.pending_continuation?.cancelled) return
 
           const observedSessionID = state.session_id
           const observedToken = getToken(state)
@@ -104,6 +124,23 @@ export function createLoopCore(deps: CreateLoopCoreDeps) {
             currentState.session_id !== observedSessionID ||
             getToken(currentState) !== observedToken
           ) {
+            return
+          }
+
+          if (currentState.pending_continuation) {
+            if (currentState.pending_continuation.dispatch_token) {
+              await writeState(deps.rootDir, {
+                ...currentState,
+                skip_next_continuation: true,
+              })
+              return
+            }
+            if (currentState.pending_continuation.cancelled) return
+            await writeState(deps.rootDir, {
+              ...currentState,
+              pending_continuation: { ...currentState.pending_continuation, cancelled: true },
+            })
+            showToast("Ralph Loop", "Cancelled the pending Ralph Loop continuation.", "info")
             return
           }
 
@@ -161,24 +198,10 @@ export function createLoopCore(deps: CreateLoopCoreDeps) {
           .some((message) => message.role === "assistant")
         if (!hasNewAssistantMessages) return
 
-        const liveState = await readState(deps.rootDir)
-        if (
-          !liveState ||
-          !liveState.active ||
-          liveState.session_id !== event.sessionID ||
-          getToken(liveState) !== incarnationToken
-        ) {
-          return
-        }
-        const continuationState = await readState(deps.rootDir)
-        if (
-          !continuationState ||
-          !continuationState.active ||
-          continuationState.session_id !== event.sessionID ||
-          getToken(continuationState) !== incarnationToken
-        ) {
-          return
-        }
+        const liveState = await readCurrentState(event.sessionID, incarnationToken)
+        if (!liveState) return
+        const continuationState = await readCurrentState(event.sessionID, incarnationToken)
+        if (!continuationState) return
 
         if (
           detectCompletion(messages, continuationState.completion_promise, continuationState.message_count_at_start)
@@ -243,6 +266,130 @@ export function createLoopCore(deps: CreateLoopCoreDeps) {
           return
         }
 
+        if (wait) {
+          await runStateMutation(async () => {
+            const currentState = await readCurrentState(event.sessionID, incarnationToken)
+            if (!currentState || currentState.pending_continuation) return
+            await writeState(deps.rootDir, {
+              ...currentState,
+              pending_continuation: {
+                started_at: new Date().toISOString(),
+                countdown_seconds_remaining: CONTINUATION_COUNTDOWN_SECONDS,
+              },
+            })
+          })
+
+          showToast(
+            "Ralph Loop",
+            `Injecting next continuation in ${CONTINUATION_COUNTDOWN_SECONDS}s. Use interrupt to cancel once.`,
+            "warning",
+          )
+
+          for (let remaining = CONTINUATION_COUNTDOWN_SECONDS; remaining > 0; remaining -= 1) {
+            await wait(CONTINUATION_COUNTDOWN_STEP_MS)
+            const currentState = await readCurrentState(event.sessionID, incarnationToken)
+            if (!currentState?.pending_continuation) return
+            if (currentState.pending_continuation.cancelled) {
+              await runStateMutation(async () => {
+                const latest = await readCurrentState(event.sessionID, incarnationToken)
+                if (!latest?.pending_continuation?.cancelled) return
+                const nextState: RalphLoopState = {
+                  ...latest,
+                  last_message_count_processed: batchMessageCount,
+                }
+                delete nextState.pending_continuation
+                await writeState(deps.rootDir, nextState)
+              })
+              return
+            }
+
+            await runStateMutation(async () => {
+              const latest = await readCurrentState(event.sessionID, incarnationToken)
+              if (!latest?.pending_continuation || latest.pending_continuation.cancelled) return
+              await writeState(deps.rootDir, {
+                ...latest,
+                pending_continuation: {
+                  ...latest.pending_continuation,
+                  countdown_seconds_remaining: remaining - 1,
+                },
+              })
+            })
+
+            if (remaining > 1) {
+              showToast(
+                "Ralph Loop",
+                `Injecting next continuation in ${remaining - 1}s. Use interrupt to cancel once.`,
+                "warning",
+              )
+            }
+          }
+
+          const promptGate = await runStateMutation(async () => {
+            const currentState = await readCurrentState(event.sessionID, incarnationToken)
+            if (!currentState?.pending_continuation) return { kind: "aborted" as const }
+
+            if (currentState.pending_continuation.cancelled) {
+              const nextState: RalphLoopState = {
+                ...currentState,
+                last_message_count_processed: batchMessageCount,
+              }
+              delete nextState.pending_continuation
+              await writeState(deps.rootDir, nextState)
+              return { kind: "cancelled" as const }
+            }
+
+            const dispatchToken = randomUUID()
+            const prompt = buildContinuationPrompt({
+                iteration: nextIteration,
+                prompt: currentState.prompt,
+                completionPromise: currentState.completion_promise,
+                maxIterations: currentState.max_iterations,
+              })
+
+            await writeState(deps.rootDir, {
+              ...currentState,
+              pending_continuation: {
+                ...currentState.pending_continuation,
+                countdown_seconds_remaining: 0,
+                dispatch_token: dispatchToken,
+              },
+            })
+
+            try {
+              await deps.adapter.prompt(event.sessionID, prompt)
+            } catch (error) {
+              const latest = await readCurrentState(event.sessionID, incarnationToken)
+              if (latest?.pending_continuation?.dispatch_token === dispatchToken) {
+                const nextState: RalphLoopState = { ...latest }
+                delete nextState.pending_continuation
+                await writeState(deps.rootDir, nextState)
+              }
+              throw error
+            }
+
+            const latest = await readCurrentState(event.sessionID, incarnationToken)
+            if (!latest?.pending_continuation) return { kind: "aborted" as const }
+            if (latest.pending_continuation.dispatch_token !== dispatchToken) return { kind: "aborted" as const }
+
+            const nextState: RalphLoopState = {
+              ...latest,
+              iteration: nextIteration,
+              last_message_count_processed: batchMessageCount,
+            }
+            delete nextState.pending_continuation
+            await writeState(deps.rootDir, nextState)
+
+            return { kind: "dispatched" as const }
+          })
+
+          if (promptGate.kind !== "dispatched") return
+        }
+
+        if (wait) {
+          showToast("Ralph Loop", "Injected Ralph Loop continuation.", "success")
+          return
+        }
+
         await deps.adapter.prompt(
           event.sessionID,
           buildContinuationPrompt({
@@ -271,6 +418,8 @@ export function createLoopCore(deps: CreateLoopCoreDeps) {
           }
           await writeState(deps.rootDir, nextState)
         })
+
+        showToast("Ralph Loop", "Injected Ralph Loop continuation.", "success")
 
       } finally {
         const currentToken = inFlight.get(event.sessionID)
