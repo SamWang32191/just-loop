@@ -9,11 +9,11 @@ import {
 } from "../../src/ralph-loop/constants"
 
 describe("plugin handlers", () => {
-  it("wires /ralph-loop to startLoop with parsed options", async () => {
+  it("wires /just-loop to startLoop with parsed options", async () => {
     const startLoop = mock(async () => undefined)
     const cancelLoop = mock(async () => undefined)
 
-    await handleChatMessage("/ralph-loop --max 4 --promise \"<promise>SHIP</promise>\" build plugin", {
+    await handleChatMessage("/just-loop --max 4 --promise \"<promise>SHIP</promise>\" build plugin", {
       startLoop,
       cancelLoop,
     } as any, "session-1")
@@ -30,11 +30,11 @@ describe("plugin handlers", () => {
     expect(cancelLoop).not.toHaveBeenCalled()
   })
 
-  it("wires canonical equals-style /ralph-loop flags to startLoop with parsed options", async () => {
+  it("wires canonical equals-style /just-loop flags to startLoop with parsed options", async () => {
     const startLoop = mock(async () => undefined)
     const cancelLoop = mock(async () => undefined)
 
-    await handleChatMessage("/ralph-loop --max-iterations=7 --completion-promise=SHIP --strategy=continue task", {
+    await handleChatMessage("/just-loop --max-iterations=7 --completion-promise=SHIP --strategy=continue task", {
       startLoop,
       cancelLoop,
     } as any, "session-1b")
@@ -67,7 +67,7 @@ describe("plugin handlers", () => {
     const cancelLoop = mock(async () => undefined)
 
     await handleChatMessage("hello world", { startLoop, cancelLoop } as any, "session-3")
-    await handleChatMessage("/ralph-loopx task", { startLoop, cancelLoop } as any, "session-3")
+    await handleChatMessage("/just-loopx task", { startLoop, cancelLoop } as any, "session-3")
 
     expect(startLoop).not.toHaveBeenCalled()
     expect(cancelLoop).not.toHaveBeenCalled()
@@ -102,7 +102,7 @@ describe("plugin handlers", () => {
       { sessionID: "session-4" } as any,
       {
         parts: [
-          { type: "text", text: "/ralph-loop build" },
+          { type: "text", text: "/just-loop build" },
           { type: "text", text: " plugin" },
           { type: "image", text: "ignored" },
         ],
@@ -120,9 +120,9 @@ describe("plugin handlers", () => {
     await import("../../src/plugin/chat-message-handler").then(async ({ handleChatMessage }) => {
       await (handleChatMessage as any)(
         {
-          output: { parts: [{ type: "text", text: "/ralph-loop build plugin" }] },
+          output: { parts: [{ type: "text", text: "/just-loop build plugin" }] },
         } as any,
-        { parts: [{ type: "text", text: "/ralph-loop build plugin" }] } as any,
+        { parts: [{ type: "text", text: "/just-loop build plugin" }] } as any,
         { startLoop, cancelLoop } as any,
         "session-legacy",
       )
@@ -234,7 +234,7 @@ describe("createPlugin", () => {
       } as any,
       {
         args: {
-          name: "/ralph-loop build plugin",
+        name: "/just-loop build plugin",
         },
       } as any,
     )
@@ -318,14 +318,14 @@ describe("createPlugin", () => {
 
     await plugin["chat.message"](
       { sessionID: "s1" } as any,
-      { parts: [{ type: "text", text: "/ralph-loop build plugin" }] } as any,
+      { parts: [{ type: "text", text: "/just-loop build plugin" }] } as any,
     )
 
     expect(core.startLoop).not.toHaveBeenCalled()
     expect(core.cancelLoop).not.toHaveBeenCalled()
   })
 
-  it("registers formal ralph-loop and cancel-ralph commands in config", async () => {
+  it("registers formal just-loop and cancel-ralph commands in config", async () => {
     const plugin = await createPlugin(
       {
         directory: "/workspace",
@@ -362,12 +362,12 @@ describe("createPlugin", () => {
     await plugin.config?.(config as any)
 
     const commands = config.command as Record<string, { description?: string; template?: string }>
-    expect(commands["ralph-loop"]).toBeDefined()
-    expect(commands["ralph-loop"]?.description).toContain("Start self-referential development loop")
-    expect(commands["ralph-loop"]?.template).toContain("You are starting a Ralph Loop")
-    expect(commands["ralph-loop"]?.template).toContain("--max-iterations=N")
-    expect(commands["ralph-loop"]?.template).toContain("--completion-promise=TEXT")
-    expect(commands["ralph-loop"]?.template).toContain("--strategy=continue")
+    expect(commands["just-loop"]).toBeDefined()
+    expect(commands["just-loop"]?.description).toContain("Start self-referential development loop")
+    expect(commands["just-loop"]?.template).toContain("You are starting a Ralph Loop")
+    expect(commands["just-loop"]?.template).toContain("--max-iterations=N")
+    expect(commands["just-loop"]?.template).toContain("--completion-promise=TEXT")
+    expect(commands["just-loop"]?.template).toContain("--strategy=continue")
     expect(commands["cancel-ralph"]).toBeDefined()
     expect(commands["cancel-ralph"]?.description).toContain("Cancel active Ralph Loop")
     expect(commands["cancel-ralph"]?.template).toContain("Cancel the currently active Ralph Loop")
@@ -418,7 +418,7 @@ describe("createPlugin", () => {
       } as any,
       {
         args: {
-          name: "/ralph-loop build plugin",
+          name: "/just-loop build plugin",
         },
       } as any,
     )
@@ -476,13 +476,13 @@ describe("createPlugin", () => {
       } as any,
       {
         args: {
-          name: "/ralph-loop build plugin",
+          name: "/just-loop build plugin",
         },
       } as any,
     )
 
     const commands = config.command as Record<string, { description?: string; template?: string }>
-    expect(commands["ralph-loop"]).toBeDefined()
+    expect(commands["just-loop"]).toBeDefined()
     expect(commands["cancel-ralph"]).toBeDefined()
     expect(core.startLoop).toHaveBeenCalledWith("session-implicit-enabled", "build plugin", {
       maxIterations: 7,
@@ -530,7 +530,7 @@ describe("createPlugin", () => {
 
     await plugin["command.execute.before"]?.(
       {
-        command: "ralph-loop",
+        command: "just-loop",
         sessionID: "session-implicit-command-enabled",
         arguments: "build plugin",
       } as any,
@@ -582,7 +582,7 @@ describe("createPlugin", () => {
     )
   })
 
-  it("starts the loop when /ralph-loop executes as a formal command", async () => {
+  it("starts the loop when /just-loop executes as a formal command", async () => {
     const core = {
       startLoop: mock(async () => undefined),
       cancelLoop: mock(async () => undefined),
@@ -627,7 +627,7 @@ describe("createPlugin", () => {
       } as any,
       {
         args: {
-          name: "/ralph-loop --max 4 build plugin",
+          name: "/just-loop --max 4 build plugin",
         },
       } as any,
     )
@@ -678,7 +678,7 @@ describe("createPlugin", () => {
 
     await plugin["command.execute.before"]?.(
       {
-        command: "ralph-loop",
+        command: "just-loop",
         sessionID: "session-command-hook",
         arguments: "--max 6 build plugin",
       } as any,
@@ -694,7 +694,7 @@ describe("createPlugin", () => {
     expect(core.cancelLoop).not.toHaveBeenCalled()
   })
 
-  it("uses configured default max iterations when /ralph-loop omits --max", async () => {
+  it("uses configured default max iterations when /just-loop omits --max", async () => {
     const core = {
       startLoop: mock(async () => undefined),
       cancelLoop: mock(async () => undefined),
@@ -739,7 +739,7 @@ describe("createPlugin", () => {
       } as any,
       {
         args: {
-          name: "/ralph-loop build plugin",
+          name: "/just-loop build plugin",
         },
       } as any,
     )

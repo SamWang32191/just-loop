@@ -20,11 +20,11 @@ export function parseRalphLoopCommand(input: string): ParsedRalphLoopCommand | n
     return { kind: "cancel" }
   }
 
-  if (!/^\/ralph-loop(?:\s|$)/.test(trimmed)) {
+  if (!/^\/just-loop(?:\s|$)/.test(trimmed)) {
     return null
   }
 
-  let rest = trimmed.slice("/ralph-loop".length)
+  let rest = trimmed.slice("/just-loop".length)
   let maxIterations: number | undefined
   let completionPromise = DEFAULT_COMPLETION_PROMISE
 
