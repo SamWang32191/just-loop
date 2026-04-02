@@ -155,10 +155,10 @@ describe("plugin handlers", () => {
     ])
   })
 
-  it("routes active-loop-scoped session.interrupt from tui.command.execute properties without needing sessionID", async () => {
+  it("routes active-loop-scoped session.interrupt from top-level tui.command.execute command without needing sessionID", async () => {
     const handleLoopEvent = mock(async () => undefined)
 
-    await handleTuiCommandExecute({ properties: { command: "session.interrupt" } } as any, {
+    await handleTuiCommandExecute({ command: "session.interrupt" } as any, {
       handleEvent: handleLoopEvent,
     } as any)
 
@@ -169,7 +169,7 @@ describe("plugin handlers", () => {
   it("ignores other tui.command.execute commands", async () => {
     const handleLoopEvent = mock(async () => undefined)
 
-    await handleTuiCommandExecute({ properties: { command: "session.resume" } } as any, {
+    await handleTuiCommandExecute({ command: "session.resume" } as any, {
       handleEvent: handleLoopEvent,
     } as any)
 
@@ -249,7 +249,7 @@ describe("createPlugin", () => {
     expect(core.handleEvent).toHaveBeenCalledWith({ type: "session.idle", sessionID: "s1" })
   })
 
-  it("wires tui.command.execute to active-loop-scoped session.interrupt core events", async () => {
+  it("wires top-level tui.command.execute command to active-loop-scoped session.interrupt core events", async () => {
     const core = {
       startLoop: mock(async () => undefined),
       cancelLoop: mock(async () => undefined),
@@ -280,7 +280,7 @@ describe("createPlugin", () => {
       },
     )
 
-    await plugin["tui.command.execute"]?.({ properties: { command: "session.interrupt" } } as any)
+    await plugin["tui.command.execute"]?.({ command: "session.interrupt" } as any)
 
     expect(core.handleEvent).toHaveBeenCalledWith({ type: "session.interrupt" })
   })
@@ -422,7 +422,7 @@ describe("createPlugin", () => {
         },
       } as any,
     )
-    await plugin["tui.command.execute"]?.({ properties: { command: "session.interrupt" } } as any)
+    await plugin["tui.command.execute"]?.({ command: "session.interrupt" } as any)
     await plugin.event({ event: { type: "session.idle", properties: { sessionID: "session-disabled" } } } as any)
 
     expect(config.command).toEqual({})

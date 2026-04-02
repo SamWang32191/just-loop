@@ -7,10 +7,7 @@ export type TuiCommandExecuteInput = unknown
 function hasInterruptCommand(input: TuiCommandExecuteInput) {
   if (!input || typeof input !== "object") return false
 
-  const properties = (input as { properties?: unknown }).properties
-  if (!properties || typeof properties !== "object") return false
-
-  return (properties as { command?: unknown }).command === "session.interrupt"
+  return (input as { command?: unknown }).command === "session.interrupt"
 }
 
 export async function handleTuiCommandExecute(input: TuiCommandExecuteInput, core: LoopCore) {

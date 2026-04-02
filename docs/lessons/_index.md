@@ -4,6 +4,7 @@
 
 | Card | Scope | Tags | Date |
 |---|---|---|---|
+| `opencode-tui-command-execute-uses-top-level-command` | project | opencode, plugin, tui, command, interrupt | 2026-04-02 |
 | `opencode-plugin-sdk-has-tui-showtoast` | project | opencode, plugin, tui, toast, sdk | 2026-04-02 |
 | `orphaned-loop-cleanup-must-revalidate-state` | feature | ralph-loop, concurrency, state, recovery, idle-event | 2026-03-24 |
 | `npm-publish-needs-real-tarball-smoke` | project | npm, publish, tarball, typescript, smoke-test | 2026-03-24 |
