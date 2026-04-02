@@ -50,8 +50,8 @@ Check if a loop is active and cancel it. Inform the user of the result.`
 
 export function getBuiltinCommands(): Record<string, CommandDefinition> {
   return {
-    "ralph-loop": {
-      name: "ralph-loop",
+    "just-loop": {
+      name: "just-loop",
       description: "(builtin) Start self-referential development loop until completion",
       template: `<command-instruction>
 ${RALPH_LOOP_TEMPLATE}
