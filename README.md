@@ -6,23 +6,18 @@ OpenCode plugin package for just-loop.
 
 - Node 20+
 
-## Install
-
-```bash
-npm install @w32191/just-loop
-```
-
 ## Usage
 
-Put this in your OpenCode plugin entry or config file:
+在 `opencode.json` 的 `plugin` 欄位加入 plugin 名稱即可載入：
 
-```ts
-import justLoop from "@w32191/just-loop"
-
-export default justLoop
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["@w32191/just-loop"]
+}
 ```
 
-This package is intended for OpenCode plugin usage.
+依官方文件，`opencode.json` 放在專案根目錄（專案設定）或 `~/.config/opencode/opencode.json`（全域設定）皆可，OpenCode 會在啟動時自動安裝與載入 npm 套件型 plugin。
 
 ## Publishing notes
 
