@@ -149,7 +149,7 @@ describe("createOpenCodeHostAdapter", () => {
 
     await adapter.showToast?.({
       title: "Ralph Loop",
-      message: "Injecting in 5s. Interrupt to cancel.",
+      message: "Injecting in 10s. Interrupt to cancel.",
       variant: "warning",
       duration: 1000,
     })
@@ -158,7 +158,7 @@ describe("createOpenCodeHostAdapter", () => {
     expect(showToast).toHaveBeenCalledWith({
       body: {
         title: "Ralph Loop",
-        message: "Injecting in 5s. Interrupt to cancel.",
+        message: "Injecting in 10s. Interrupt to cancel.",
         variant: "warning",
         duration: 1000,
       },
@@ -1168,9 +1168,9 @@ describe("loop-core", () => {
     expect(prompt).toHaveBeenCalledTimes(1)
   })
 
-  it("waits for a 5-second countdown, shows 5→1 toasts, and injects only after the countdown", async () => {
+  it("waits for a 10-second countdown, shows 10→1 toasts, and injects only after the countdown", async () => {
     const root = await createRoot()
-    const waits = Array.from({ length: 5 }, () => createDeferred<void>())
+    const waits = Array.from({ length: 10 }, () => createDeferred<void>())
     let waitIndex = 0
     const wait = mock(async (ms: number) => {
       expect(ms).toBe(1000)
@@ -1201,7 +1201,7 @@ describe("loop-core", () => {
     expect(prompt).not.toHaveBeenCalled()
     expect(showToast).toHaveBeenCalledWith({
       title: "Ralph Loop",
-      message: "Injecting next continuation in 5s. Use interrupt to cancel once.",
+      message: "Injecting next continuation in 10s. Use interrupt to cancel once.",
       variant: "warning",
       duration: 1000,
     })
@@ -1212,11 +1212,16 @@ describe("loop-core", () => {
       expect(prompt).not.toHaveBeenCalled()
     }
 
-    waits[4]?.resolve()
+    waits[9]?.resolve()
     await idle
 
-    expect(wait).toHaveBeenCalledTimes(5)
+    expect(wait).toHaveBeenCalledTimes(10)
     expect(showToast.mock.calls.map(([toast]) => toast.message)).toEqual([
+      "Injecting next continuation in 10s. Use interrupt to cancel once.",
+      "Injecting next continuation in 9s. Use interrupt to cancel once.",
+      "Injecting next continuation in 8s. Use interrupt to cancel once.",
+      "Injecting next continuation in 7s. Use interrupt to cancel once.",
+      "Injecting next continuation in 6s. Use interrupt to cancel once.",
       "Injecting next continuation in 5s. Use interrupt to cancel once.",
       "Injecting next continuation in 4s. Use interrupt to cancel once.",
       "Injecting next continuation in 3s. Use interrupt to cancel once.",
@@ -1231,7 +1236,7 @@ describe("loop-core", () => {
   it("cancels a pending countdown once, emits a cancellation toast, and allows a later continuation", async () => {
     const root = await createRoot()
     let batch = 0
-    const waits = Array.from({ length: 10 }, () => createDeferred<void>())
+    const waits = Array.from({ length: 20 }, () => createDeferred<void>())
     let waitIndex = 0
     const wait = mock(async () => {
       const step = waits[waitIndex]
@@ -1269,7 +1274,7 @@ describe("loop-core", () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     await core.handleEvent({ type: "session.interrupt" })
 
-    for (let i = 0; i < 5; i += 1) {
+    for (let i = 0; i < 10; i += 1) {
       waits[i]?.resolve()
       await new Promise((resolve) => setTimeout(resolve, 0))
     }
@@ -1287,7 +1292,7 @@ describe("loop-core", () => {
     const secondIdle = core.handleEvent({ type: "session.idle", sessionID: "s1" })
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    for (let i = 5; i < 10; i += 1) {
+    for (let i = 10; i < 20; i += 1) {
       waits[i]?.resolve()
       await new Promise((resolve) => setTimeout(resolve, 0))
     }
@@ -1300,7 +1305,7 @@ describe("loop-core", () => {
 
   it("does not inject when the loop is cleared during a pending countdown", async () => {
     const root = await createRoot()
-    const waits = Array.from({ length: 5 }, () => createDeferred<void>())
+    const waits = Array.from({ length: 10 }, () => createDeferred<void>())
     let waitIndex = 0
     const wait = mock(async () => {
       const step = waits[waitIndex]
@@ -1339,7 +1344,7 @@ describe("loop-core", () => {
 
   it("continues countdown injection even if toast notifications fail", async () => {
     const root = await createRoot()
-    const waits = Array.from({ length: 5 }, () => createDeferred<void>())
+    const waits = Array.from({ length: 10 }, () => createDeferred<void>())
     let waitIndex = 0
     const wait = mock(async () => {
       const step = waits[waitIndex]
@@ -1382,7 +1387,7 @@ describe("loop-core", () => {
 
   it("does not inject if the loop is deleted as the final countdown step completes", async () => {
     const root = await createRoot()
-    const waits = Array.from({ length: 5 }, () => createDeferred<void>())
+    const waits = Array.from({ length: 10 }, () => createDeferred<void>())
     let waitIndex = 0
     let core!: ReturnType<typeof createLoopCore>
     const wait = mock(async () => {
@@ -1417,7 +1422,7 @@ describe("loop-core", () => {
     queueMicrotask(() => {
       void core.handleEvent({ type: "session.deleted", sessionID: "s1" })
     })
-    waits[4]?.resolve()
+    waits[9]?.resolve()
     await idle
 
     expect(prompt).not.toHaveBeenCalled()
@@ -1426,7 +1431,7 @@ describe("loop-core", () => {
 
   it("does not inject if interrupt is queued as the final countdown step completes", async () => {
     const root = await createRoot()
-    const waits = Array.from({ length: 5 }, () => createDeferred<void>())
+    const waits = Array.from({ length: 10 }, () => createDeferred<void>())
     let waitIndex = 0
     let core!: ReturnType<typeof createLoopCore>
     const wait = mock(async () => {
@@ -1461,7 +1466,7 @@ describe("loop-core", () => {
     queueMicrotask(() => {
       void core.handleEvent({ type: "session.interrupt" })
     })
-    waits[4]?.resolve()
+    waits[9]?.resolve()
     await idle
 
     const state = await readState(root)

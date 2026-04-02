@@ -1,8 +1,4 @@
-## Purpose
-
-Define the pending prompt-injection countdown behavior for Ralph Loop, including user-visible toast updates and one-shot cancellation.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Continuation injection SHALL wait for a 10-second countdown
 When an active Ralph Loop determines that another continuation prompt is required, the system SHALL wait 10 seconds before sending that continuation prompt.
@@ -25,20 +21,6 @@ When an active Ralph Loop determines that another continuation prompt is require
 #### Scenario: Duplicate idle events do not create duplicate countdowns
 - **WHEN** a continuation countdown is already pending for the active loop and another `session.idle` event arrives for the same loop
 - **THEN** the system MUST NOT schedule or send an additional continuation prompt for that same assistant batch
-
-### Requirement: Users SHALL be able to cancel the pending next injection once
-The system SHALL allow the existing interrupt control to cancel a pending continuation injection without cancelling the active Ralph Loop.
-
-#### Scenario: Interrupt during countdown suppresses the pending prompt
-- **WHEN** a `session.interrupt` event is received while a continuation countdown is pending
-- **THEN** the system MUST NOT send the pending continuation prompt
-- **AND** the loop remains active at the current iteration
-- **AND** the system SHALL notify the user that the pending injection was cancelled
-
-#### Scenario: Loop cleanup during countdown prevents injection
-- **WHEN** the active loop is cancelled, deleted, errors, or otherwise cleared before the countdown completes
-- **THEN** the system MUST NOT send the pending continuation prompt
-- **AND** the pending countdown state is cleared
 
 ### Requirement: Pending-injection cancellation SHALL be one-shot
 Cancelling a pending continuation injection SHALL only affect the currently pending next injection and MUST NOT permanently disable future continuation prompts.
