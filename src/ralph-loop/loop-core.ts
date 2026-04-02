@@ -324,7 +324,15 @@ export function createLoopCore(deps: CreateLoopCoreDeps) {
             }
           }
 
-          const promptGate = await runStateMutation(async () => {
+          const dispatchToken = randomUUID()
+          const continuationPrompt = buildContinuationPrompt({
+            iteration: nextIteration,
+            prompt: continuationState.prompt,
+            completionPromise: continuationState.completion_promise,
+            maxIterations: continuationState.max_iterations,
+          })
+
+          const dispatchResult = await runStateMutation(async () => {
             const currentState = await readCurrentState(event.sessionID, incarnationToken)
             if (!currentState?.pending_continuation) return { kind: "aborted" as const }
 
@@ -338,14 +346,6 @@ export function createLoopCore(deps: CreateLoopCoreDeps) {
               return { kind: "cancelled" as const }
             }
 
-            const dispatchToken = randomUUID()
-            const prompt = buildContinuationPrompt({
-                iteration: nextIteration,
-                prompt: currentState.prompt,
-                completionPromise: currentState.completion_promise,
-                maxIterations: currentState.max_iterations,
-              })
-
             await writeState(deps.rootDir, {
               ...currentState,
               pending_continuation: {
@@ -354,22 +354,29 @@ export function createLoopCore(deps: CreateLoopCoreDeps) {
                 dispatch_token: dispatchToken,
               },
             })
+          })
 
-            try {
-              await deps.adapter.prompt(event.sessionID, prompt)
-            } catch (error) {
+          if (dispatchResult?.kind === "aborted" || dispatchResult?.kind === "cancelled") {
+            return
+          }
+
+          try {
+            await deps.adapter.prompt(event.sessionID, continuationPrompt)
+          } catch (error) {
+            await runStateMutation(async () => {
               const latest = await readCurrentState(event.sessionID, incarnationToken)
-              if (latest?.pending_continuation?.dispatch_token === dispatchToken) {
-                const nextState: RalphLoopState = { ...latest }
-                delete nextState.pending_continuation
-                await writeState(deps.rootDir, nextState)
-              }
-              throw error
-            }
+              if (latest?.pending_continuation?.dispatch_token !== dispatchToken) return
+              const nextState: RalphLoopState = { ...latest }
+              delete nextState.pending_continuation
+              await writeState(deps.rootDir, nextState)
+            })
+            throw error
+          }
 
+          await runStateMutation(async () => {
             const latest = await readCurrentState(event.sessionID, incarnationToken)
-            if (!latest?.pending_continuation) return { kind: "aborted" as const }
-            if (latest.pending_continuation.dispatch_token !== dispatchToken) return { kind: "aborted" as const }
+            if (!latest?.pending_continuation) return
+            if (latest.pending_continuation.dispatch_token !== dispatchToken) return
 
             const nextState: RalphLoopState = {
               ...latest,
@@ -378,11 +385,7 @@ export function createLoopCore(deps: CreateLoopCoreDeps) {
             }
             delete nextState.pending_continuation
             await writeState(deps.rootDir, nextState)
-
-            return { kind: "dispatched" as const }
           })
-
-          if (promptGate.kind !== "dispatched") return
         }
 
         if (wait) {
@@ -390,15 +393,26 @@ export function createLoopCore(deps: CreateLoopCoreDeps) {
           return
         }
 
-        await deps.adapter.prompt(
-          event.sessionID,
-          buildContinuationPrompt({
-            iteration: nextIteration,
-            prompt: continuationState.prompt,
-            completionPromise: continuationState.completion_promise,
-            maxIterations: continuationState.max_iterations,
-          }),
-        )
+        try {
+          await deps.adapter.prompt(
+            event.sessionID,
+            buildContinuationPrompt({
+              iteration: nextIteration,
+              prompt: continuationState.prompt,
+              completionPromise: continuationState.completion_promise,
+              maxIterations: continuationState.max_iterations,
+            }),
+          )
+        } catch (error) {
+          await runStateMutation(async () => {
+            const currentState = await readCurrentState(event.sessionID, incarnationToken)
+            if (!currentState?.pending_continuation) return
+            const nextState: RalphLoopState = { ...currentState }
+            delete nextState.pending_continuation
+            await writeState(deps.rootDir, nextState)
+          })
+          throw error
+        }
 
         await runStateMutation(async () => {
           const currentState = await readState(deps.rootDir)

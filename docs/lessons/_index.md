@@ -4,6 +4,7 @@
 
 | Card | Scope | Tags | Date |
 |---|---|---|---|
+| `async-loop-tests-need-explicit-barriers-and-cleanup` | feature | test, async, race, ralph-loop, cleanup | 2026-04-02 |
 | `opencode-tui-command-execute-uses-top-level-command` | project | opencode, plugin, tui, command, interrupt | 2026-04-02 |
 | `opencode-plugin-sdk-has-tui-showtoast` | project | opencode, plugin, tui, toast, sdk | 2026-04-02 |
 | `orphaned-loop-cleanup-must-revalidate-state` | feature | ralph-loop, concurrency, state, recovery, idle-event | 2026-03-24 |

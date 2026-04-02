@@ -30,6 +30,21 @@ async function createRoot() {
   return root
 }
 
+async function flushMicrotasks(times = 3) {
+  for (let i = 0; i < times; i += 1) {
+    await Promise.resolve()
+  }
+}
+
+async function waitForState(root: string, predicate: (state: RalphLoopState | null) => boolean) {
+  for (let i = 0; i < 20; i += 1) {
+    const state = await readState(root)
+    if (predicate(state)) return state
+    await Promise.resolve()
+  }
+  return await readState(root)
+}
+
 afterEach(async () => {
   await Promise.all(createdRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
 })
@@ -679,10 +694,14 @@ describe("loop-core", () => {
 
   it("does not advance iteration when prompt injection fails", async () => {
     const root = await createRoot()
+    let core!: ReturnType<typeof createLoopCore>
     const prompt = mock(async () => {
+      queueMicrotask(() => {
+        void core.handleEvent({ type: "session.deleted", sessionID: "s1" })
+      })
       throw new Error("prompt failed")
     })
-    const core = createLoopCore({
+    core = createLoopCore({
       rootDir: root,
       adapter: {
         getMessageCount: mock(async () => 0),
@@ -698,8 +717,7 @@ describe("loop-core", () => {
       "prompt failed",
     )
 
-    const state = await readState(root)
-    expect(state?.iteration).toBe(0)
+    expect(await readState(root)).toBeNull()
   })
 
   it("does not prompt if deleted during idle processing after messages are read", async () => {
@@ -1143,9 +1161,11 @@ describe("loop-core", () => {
   it("guards against duplicate idle events while a continuation is in flight", async () => {
     const root = await createRoot()
     let resolvePrompt!: () => void
-    const prompt = mock(() => new Promise<void>((resolve) => {
-      resolvePrompt = resolve
-    }))
+    const prompt = mock(() => {
+      return new Promise<void>((resolve) => {
+        resolvePrompt = resolve
+      })
+    })
     const core = createLoopCore({
       rootDir: root,
       adapter: {
@@ -1161,22 +1181,29 @@ describe("loop-core", () => {
 
     const first = core.handleEvent({ type: "session.idle", sessionID: "s1" })
     const second = core.handleEvent({ type: "session.idle", sessionID: "s1" })
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    resolvePrompt()
-    await Promise.all([first, second])
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      resolvePrompt()
+      await Promise.all([first, second])
 
-    expect(prompt).toHaveBeenCalledTimes(1)
+      expect(prompt).toHaveBeenCalledTimes(1)
+    } finally {
+      resolvePrompt?.()
+      await Promise.allSettled([first, second])
+    }
   })
 
   it("waits for a 10-second countdown, shows 10→1 toasts, and injects only after the countdown", async () => {
     const root = await createRoot()
     const waits = Array.from({ length: 10 }, () => createDeferred<void>())
+    const countdownStarted = createDeferred<void>()
     let waitIndex = 0
     const wait = mock(async (ms: number) => {
       expect(ms).toBe(1000)
       const step = waits[waitIndex]
       waitIndex += 1
       if (!step) throw new Error("unexpected extra wait")
+      if (waitIndex === 1) countdownStarted.resolve()
       await step.promise
     })
     const showToast = mock(async () => undefined)
@@ -1196,52 +1223,59 @@ describe("loop-core", () => {
 
     await core.startLoop("s1", "build plugin", { maxIterations: 3 })
     const idle = core.handleEvent({ type: "session.idle", sessionID: "s1" })
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    try {
+      await countdownStarted.promise
 
-    expect(prompt).not.toHaveBeenCalled()
-    expect(showToast).toHaveBeenCalledWith({
-      title: "Ralph Loop",
-      message: "Injecting next continuation in 10s. Use interrupt to cancel once.",
-      variant: "warning",
-      duration: 1000,
-    })
-
-    for (let i = 0; i < waits.length - 1; i += 1) {
-      waits[i]?.resolve()
-      await new Promise((resolve) => setTimeout(resolve, 0))
       expect(prompt).not.toHaveBeenCalled()
+      expect(showToast).toHaveBeenCalledWith({
+        title: "Ralph Loop",
+        message: "Injecting next continuation in 10s. Use interrupt to cancel once.",
+        variant: "warning",
+        duration: 1000,
+      })
+
+      for (let i = 0; i < waits.length - 1; i += 1) {
+        waits[i]?.resolve()
+        await flushMicrotasks()
+        expect(prompt).not.toHaveBeenCalled()
+      }
+
+      waits[9]?.resolve()
+      await idle
+
+      expect(wait).toHaveBeenCalledTimes(10)
+      expect(showToast.mock.calls.map(([toast]) => toast.message)).toEqual([
+        "Injecting next continuation in 10s. Use interrupt to cancel once.",
+        "Injecting next continuation in 9s. Use interrupt to cancel once.",
+        "Injecting next continuation in 8s. Use interrupt to cancel once.",
+        "Injecting next continuation in 7s. Use interrupt to cancel once.",
+        "Injecting next continuation in 6s. Use interrupt to cancel once.",
+        "Injecting next continuation in 5s. Use interrupt to cancel once.",
+        "Injecting next continuation in 4s. Use interrupt to cancel once.",
+        "Injecting next continuation in 3s. Use interrupt to cancel once.",
+        "Injecting next continuation in 2s. Use interrupt to cancel once.",
+        "Injecting next continuation in 1s. Use interrupt to cancel once.",
+        "Injected Ralph Loop continuation.",
+      ])
+      expect(prompt).toHaveBeenCalledTimes(1)
+      expect((await readState(root))?.iteration).toBe(1)
+    } finally {
+      for (const step of waits) step.resolve()
+      await Promise.allSettled([idle])
     }
-
-    waits[9]?.resolve()
-    await idle
-
-    expect(wait).toHaveBeenCalledTimes(10)
-    expect(showToast.mock.calls.map(([toast]) => toast.message)).toEqual([
-      "Injecting next continuation in 10s. Use interrupt to cancel once.",
-      "Injecting next continuation in 9s. Use interrupt to cancel once.",
-      "Injecting next continuation in 8s. Use interrupt to cancel once.",
-      "Injecting next continuation in 7s. Use interrupt to cancel once.",
-      "Injecting next continuation in 6s. Use interrupt to cancel once.",
-      "Injecting next continuation in 5s. Use interrupt to cancel once.",
-      "Injecting next continuation in 4s. Use interrupt to cancel once.",
-      "Injecting next continuation in 3s. Use interrupt to cancel once.",
-      "Injecting next continuation in 2s. Use interrupt to cancel once.",
-      "Injecting next continuation in 1s. Use interrupt to cancel once.",
-      "Injected Ralph Loop continuation.",
-    ])
-    expect(prompt).toHaveBeenCalledTimes(1)
-    expect((await readState(root))?.iteration).toBe(1)
   })
 
   it("cancels a pending countdown once, emits a cancellation toast, and allows a later continuation", async () => {
     const root = await createRoot()
     let batch = 0
     const waits = Array.from({ length: 20 }, () => createDeferred<void>())
+    const countdownStarted = createDeferred<void>()
     let waitIndex = 0
     const wait = mock(async () => {
       const step = waits[waitIndex]
       waitIndex += 1
       if (!step) throw new Error("unexpected extra wait")
+      if (waitIndex === 1) countdownStarted.resolve()
       await step.promise
     })
     const getMessages = mock(async () => {
@@ -1271,46 +1305,53 @@ describe("loop-core", () => {
     await core.startLoop("s1", "build plugin", { maxIterations: 3 })
 
     const firstIdle = core.handleEvent({ type: "session.idle", sessionID: "s1" })
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    await core.handleEvent({ type: "session.interrupt" })
+    try {
+      await countdownStarted.promise
+      await core.handleEvent({ type: "session.interrupt" })
 
-    for (let i = 0; i < 10; i += 1) {
-      waits[i]?.resolve()
-      await new Promise((resolve) => setTimeout(resolve, 0))
+      for (let i = 0; i < 10; i += 1) {
+        waits[i]?.resolve()
+        await flushMicrotasks()
+      }
+      await firstIdle
+
+      let state = await readState(root)
+      expect(prompt).not.toHaveBeenCalled()
+      expect(state?.iteration).toBe(0)
+      expect(state?.skip_next_continuation).toBeUndefined()
+      expect(showToast.mock.calls.at(-1)?.[0]).toMatchObject({
+        message: "Cancelled the pending Ralph Loop continuation.",
+        variant: "info",
+      })
+
+      const secondIdle = core.handleEvent({ type: "session.idle", sessionID: "s1" })
+      await waitForState(root, (state) => Boolean(state?.pending_continuation))
+
+      for (let i = 10; i < 20; i += 1) {
+        waits[i]?.resolve()
+        await flushMicrotasks()
+      }
+      await secondIdle
+
+      state = await readState(root)
+      expect(prompt).toHaveBeenCalledTimes(1)
+      expect(state?.iteration).toBe(1)
+    } finally {
+      for (const step of waits) step.resolve()
+      await Promise.allSettled([firstIdle])
     }
-    await firstIdle
-
-    let state = await readState(root)
-    expect(prompt).not.toHaveBeenCalled()
-    expect(state?.iteration).toBe(0)
-    expect(state?.skip_next_continuation).toBeUndefined()
-    expect(showToast.mock.calls.at(-1)?.[0]).toMatchObject({
-      message: "Cancelled the pending Ralph Loop continuation.",
-      variant: "info",
-    })
-
-    const secondIdle = core.handleEvent({ type: "session.idle", sessionID: "s1" })
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    for (let i = 10; i < 20; i += 1) {
-      waits[i]?.resolve()
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    }
-    await secondIdle
-
-    state = await readState(root)
-    expect(prompt).toHaveBeenCalledTimes(1)
-    expect(state?.iteration).toBe(1)
   })
 
   it("does not inject when the loop is cleared during a pending countdown", async () => {
     const root = await createRoot()
     const waits = Array.from({ length: 10 }, () => createDeferred<void>())
+    const countdownStarted = createDeferred<void>()
     let waitIndex = 0
     const wait = mock(async () => {
       const step = waits[waitIndex]
       waitIndex += 1
       if (!step) throw new Error("unexpected extra wait")
+      if (waitIndex === 1) countdownStarted.resolve()
       await step.promise
     })
     const prompt = mock(async () => undefined)
@@ -1329,27 +1370,34 @@ describe("loop-core", () => {
 
     await core.startLoop("s1", "build plugin", { maxIterations: 3 })
     const idle = core.handleEvent({ type: "session.idle", sessionID: "s1" })
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    await core.handleEvent({ type: "session.deleted", sessionID: "s1" })
+    try {
+      await countdownStarted.promise
+      await core.handleEvent({ type: "session.deleted", sessionID: "s1" })
 
-    for (const step of waits) {
-      step.resolve()
-      await new Promise((resolve) => setTimeout(resolve, 0))
+      for (const step of waits) {
+        step.resolve()
+        await flushMicrotasks()
+      }
+      await idle
+
+      expect(prompt).not.toHaveBeenCalled()
+      expect(await readState(root)).toBeNull()
+    } finally {
+      for (const step of waits) step.resolve()
+      await Promise.allSettled([idle])
     }
-    await idle
-
-    expect(prompt).not.toHaveBeenCalled()
-    expect(await readState(root)).toBeNull()
   })
 
   it("continues countdown injection even if toast notifications fail", async () => {
     const root = await createRoot()
     const waits = Array.from({ length: 10 }, () => createDeferred<void>())
+    const countdownStarted = createDeferred<void>()
     let waitIndex = 0
     const wait = mock(async () => {
       const step = waits[waitIndex]
       waitIndex += 1
       if (!step) throw new Error("unexpected extra wait")
+      if (waitIndex === 1) countdownStarted.resolve()
       await step.promise
     })
     const prompt = mock(async () => undefined)
@@ -1371,29 +1419,36 @@ describe("loop-core", () => {
 
     await core.startLoop("s1", "build plugin", { maxIterations: 3 })
     const idle = core.handleEvent({ type: "session.idle", sessionID: "s1" })
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    try {
+      await countdownStarted.promise
 
-    for (const step of waits) {
-      step.resolve()
-      await new Promise((resolve) => setTimeout(resolve, 0))
+      for (const step of waits) {
+        step.resolve()
+        await flushMicrotasks()
+      }
+
+      await idle
+
+      expect(showToast).toHaveBeenCalled()
+      expect(prompt).toHaveBeenCalledTimes(1)
+      expect((await readState(root))?.iteration).toBe(1)
+    } finally {
+      for (const step of waits) step.resolve()
+      await Promise.allSettled([idle])
     }
-
-    await idle
-
-    expect(showToast).toHaveBeenCalled()
-    expect(prompt).toHaveBeenCalledTimes(1)
-    expect((await readState(root))?.iteration).toBe(1)
   })
 
   it("does not inject if the loop is deleted as the final countdown step completes", async () => {
     const root = await createRoot()
     const waits = Array.from({ length: 10 }, () => createDeferred<void>())
+    const countdownStarted = createDeferred<void>()
     let waitIndex = 0
     let core!: ReturnType<typeof createLoopCore>
     const wait = mock(async () => {
       const step = waits[waitIndex]
       waitIndex += 1
       if (!step) throw new Error("unexpected extra wait")
+      if (waitIndex === 1) countdownStarted.resolve()
       await step.promise
     })
     const prompt = mock(async () => undefined)
@@ -1412,26 +1467,33 @@ describe("loop-core", () => {
 
     await core.startLoop("s1", "build plugin", { maxIterations: 3 })
     const idle = core.handleEvent({ type: "session.idle", sessionID: "s1" })
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    try {
+      await countdownStarted.promise
 
-    for (let i = 0; i < waits.length - 1; i += 1) {
-      waits[i]?.resolve()
-      await new Promise((resolve) => setTimeout(resolve, 0))
+      for (let i = 0; i < waits.length - 1; i += 1) {
+        waits[i]?.resolve()
+        await flushMicrotasks()
+      }
+
+      queueMicrotask(() => {
+        void core.handleEvent({ type: "session.deleted", sessionID: "s1" })
+      })
+      waits[9]?.resolve()
+      await idle
+
+      expect(prompt).not.toHaveBeenCalled()
+      expect(await readState(root)).toBeNull()
+    } finally {
+      for (const step of waits) step.resolve()
+      await Promise.allSettled([idle])
     }
-
-    queueMicrotask(() => {
-      void core.handleEvent({ type: "session.deleted", sessionID: "s1" })
-    })
-    waits[9]?.resolve()
-    await idle
-
-    expect(prompt).not.toHaveBeenCalled()
-    expect(await readState(root)).toBeNull()
   })
 
-  it("does not inject if interrupt is queued as the final countdown step completes", async () => {
+  it("applies interrupt-related state updates before the continuation prompt resolves", async () => {
     const root = await createRoot()
     const waits = Array.from({ length: 10 }, () => createDeferred<void>())
+    const promptStarted = createDeferred<void>()
+    let resolvePrompt!: () => void
     let waitIndex = 0
     let core!: ReturnType<typeof createLoopCore>
     const wait = mock(async () => {
@@ -1440,7 +1502,12 @@ describe("loop-core", () => {
       if (!step) throw new Error("unexpected extra wait")
       await step.promise
     })
-    const prompt = mock(async () => undefined)
+    const prompt = mock(() => {
+      promptStarted.resolve()
+      return new Promise<void>((resolve) => {
+        resolvePrompt = resolve
+      })
+    })
     core = createLoopCore({
       rootDir: root,
       adapter: {
@@ -1456,23 +1523,33 @@ describe("loop-core", () => {
 
     await core.startLoop("s1", "build plugin", { maxIterations: 3 })
     const idle = core.handleEvent({ type: "session.idle", sessionID: "s1" })
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    try {
+      await flushMicrotasks()
 
-    for (let i = 0; i < waits.length - 1; i += 1) {
-      waits[i]?.resolve()
-      await new Promise((resolve) => setTimeout(resolve, 0))
+      for (let i = 0; i < waits.length - 1; i += 1) {
+        waits[i]?.resolve()
+        await flushMicrotasks()
+      }
+
+      queueMicrotask(() => {
+        void core.handleEvent({ type: "session.interrupt" })
+      })
+      waits[9]?.resolve()
+      await promptStarted.promise
+      await core.handleEvent({ type: "session.interrupt" })
+      expect((await readState(root))?.skip_next_continuation).toBe(true)
+      resolvePrompt()
+      await idle
+
+      const state = await readState(root)
+      expect(prompt).toHaveBeenCalledTimes(1)
+      expect(state?.iteration).toBe(1)
+      expect(state?.skip_next_continuation).toBe(true)
+    } finally {
+      for (const step of waits) step.resolve()
+      resolvePrompt?.()
+      await Promise.allSettled([idle])
     }
-
-    queueMicrotask(() => {
-      void core.handleEvent({ type: "session.interrupt" })
-    })
-    waits[9]?.resolve()
-    await idle
-
-    const state = await readState(root)
-    expect(prompt).not.toHaveBeenCalled()
-    expect(state?.iteration).toBe(0)
-    expect(state?.skip_next_continuation).toBeUndefined()
   })
 
   it("persists a custom completion promise and includes it in the continuation prompt", async () => {
